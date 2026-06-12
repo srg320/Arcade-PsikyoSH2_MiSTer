@@ -1,0 +1,43 @@
+<misterromdescription>
+	<rbf>PsikyoSH2</rbf>
+	<setname>gunbird2a</setname>
+	<description>Gunbird 2 (set 2)</description>
+	<rotation>vertical</rotation>
+	<year>1998</year>
+	<manufacturer>Psikyo</manufacturer>
+	<buttons names="Button 1,Button 2,Button 3,Button 4,Start,Coin,Service,Test" />
+	<rom index="0" md5="" zip="gunbird2.zip">
+		<part crc="7ac38846" name="eeprom-gunbird2.bin" />
+		<part>01</part>
+	</rom>
+	<rom index="1" md5="" zip="gunbird2a.zip" address="0x30000000">
+		<interleave output="64">
+			<part crc="974f85ba" name="prog_l.u16" map="2165" />
+			<part crc="cb0cb826" name="prog_h.u17" map="216500" />
+		</interleave>
+		<interleave output="64">
+			<part crc="23751839" name="pdata.u1" map="21436587" />
+		</interleave>
+	</rom>
+	<rom index="2" md5="" zip="gunbird2.zip">
+		<interleave output="32">
+			<part crc="5c826bc8" name="0l.u3" map="12" />
+			<part crc="3df0cb6c" name="0h.u10" map="1200" />
+		</interleave>
+		<interleave output="32">
+			<part crc="1558358d" name="1l.u4" map="12" />
+			<part crc="4ee0103b" name="1h.u11" map="1200" />
+		</interleave>
+		<interleave output="32">
+			<part crc="e1c7a7b8" name="2l.u5" map="12" />
+			<part crc="bc8a41df" name="2h.u12" map="1200" />
+		</interleave>
+		<interleave output="32">
+			<part crc="0229d37f" name="3l.u6" map="12" />
+			<part crc="f41bbf2b" name="3h.u13" map="1200" />
+		</interleave>
+		<part repeat="0x400000">00</part>
+		<part crc="f19796ab" name="sound.u9" />
+	</rom>
+	<nvram index="4" size="256" />
+</misterromdescription>

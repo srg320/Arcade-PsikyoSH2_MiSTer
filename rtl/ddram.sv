@@ -1,0 +1,381 @@
+
+module ddram
+(
+	output         DDRAM_CLK,
+	input          DDRAM_BUSY,
+	output [ 7: 0] DDRAM_BURSTCNT,
+	output [28: 0] DDRAM_ADDR,
+	input  [63: 0] DDRAM_DOUT,
+	input          DDRAM_DOUT_READY,
+	output         DDRAM_RD,
+	output [63: 0] DDRAM_DIN,
+	output [ 7: 0] DDRAM_BE,
+	output         DDRAM_WE,
+	
+	input          clk,
+	input          rst,
+
+	input  [19: 2] dram_addr,
+	output [31: 0] dram_dout,
+	input  [31: 0] dram_din,
+	input          dram_rd,
+	input  [ 3: 0] dram_wr,
+	output         dram_busy,
+	
+	input  [19: 2] prom_addr,
+	output [31: 0] prom_dout,
+	input          prom_rd,
+	output         prom_busy,
+	
+	input  [19: 1] drom_addr,
+	output [15: 0] drom_dout,
+	input          drom_rd,
+	output         drom_busy,
+
+	input  [26: 1] bios_addr,
+	input  [15: 0] bios_din,
+	input  [ 1: 0] bios_wr,
+	output         bios_busy,
+
+	input  [31: 3] fb_addr,
+	input  [63: 0] fb_din,
+	input  [ 7: 0] fb_we,
+	output         fb_busy
+);
+
+reg  [ 31:  3] ram_address;
+reg  [ 63:  0] ram_din;
+reg  [  7:  0] ram_be;
+reg  [  7:  0] ram_burst;
+reg            ram_read = 0;
+reg            ram_write = 0;
+reg  [  3:  0] ram_chan;
+
+reg  [ 19:  2] dram_rcache_addr,dram_write_addr;
+reg  [ 31:  0] dram_write_data;
+reg  [  3:  0] dram_write_be;
+reg            dram_write_busy;
+reg            dram_rcache_dirty;
+reg            dram_rcache_busy;
+reg            dram_read_busy;
+
+reg  [ 19:  2] prom_rcache_addr;
+reg            prom_rcache_dirty;
+reg            prom_rcache_busy;
+reg            prom_read_busy;
+
+reg  [ 19:  1] drom_rcache_addr;
+reg            drom_rcache_dirty;
+reg            drom_rcache_busy;
+reg            drom_read_busy;
+
+reg  [ 26:  1] bios_write_addr;
+reg  [ 15:  0] bios_write_data;
+reg  [  1:  0] bios_be;
+reg            bios_write_busy;
+
+reg  [ 31:  3] fb_write_addr;
+reg  [ 63:  0] fb_write_data;
+reg  [  7:  0] fb_be;
+reg            fb_write_busy;
+
+reg  [  2:  0] state = 0;
+
+reg  [  6:  0] cache_wraddr;
+reg            cache_update;
+
+reg            old_rst;
+reg            dram_rd_old,dram_wr_old;
+reg            prom_rd_old;
+reg            drom_rd_old;
+reg            bios_wr_old;
+reg            fb_we_old;
+always @(posedge clk) begin
+	{dram_rd_old,dram_wr_old} <= {dram_rd,|dram_wr};
+	prom_rd_old <= prom_rd;
+	drom_rd_old <= drom_rd;
+	bios_wr_old <= |bios_wr;
+	fb_we_old <= |fb_we;
+	old_rst <= rst;
+end
+wire           rst_pulse = (rst && !old_rst);
+
+always @(posedge clk) begin
+	bit write,read,burst_read;
+	bit [3:0] chan;
+	bit [6:0] word_cnt;
+
+	{dram_rcache_busy,prom_rcache_busy,drom_rcache_busy} <= '0;
+	if (rst_pulse) begin		
+		{dram_rcache_dirty,prom_rcache_dirty,drom_rcache_dirty} <= '1;
+	end
+	else begin
+		if (dram_rd && !dram_rd_old) begin
+			if (dram_addr[19:5] != dram_rcache_addr[19:5] || dram_rcache_dirty) begin
+				dram_read_busy <= 1;
+			end
+			dram_rcache_addr <= dram_addr[19:2];
+			dram_rcache_busy <= 1;
+			dram_rcache_dirty <= 0; 
+		end
+		
+		if (prom_rd && !prom_rd_old) begin
+			if (prom_addr[19:5] != prom_rcache_addr[19:5] || prom_rcache_dirty) begin
+				prom_read_busy <= 1;
+			end
+			prom_rcache_addr <= prom_addr;
+			prom_rcache_busy <= 1;
+			prom_rcache_dirty <= 0;
+		end
+		
+		if (drom_rd && !drom_rd_old) begin
+			if (drom_addr[19:5] != drom_rcache_addr[19:5] || drom_rcache_dirty) begin
+				drom_read_busy <= 1;
+			end
+			drom_rcache_addr <= drom_addr;
+			drom_rcache_busy <= 1;
+			drom_rcache_dirty <= 0;
+		end
+	end
+		
+	if (rst_pulse) begin
+		{dram_write_busy,bios_write_busy,fb_write_busy} <= 0;
+	end
+	else begin
+		if (|dram_wr && !dram_wr_old) begin
+			if (dram_addr[19:5] == dram_rcache_addr[19:5]) begin
+				dram_rcache_dirty <= 1;
+			end
+			dram_write_addr <= dram_addr;
+			dram_write_data <= dram_din;
+			dram_write_be <= dram_wr;
+			dram_write_busy <= 1;
+		end
+		
+		if (|bios_wr && !bios_wr_old) begin
+			bios_write_addr <= bios_addr;
+			bios_write_data <= bios_din;
+			bios_be <= bios_wr;
+			bios_write_busy <= 1;	
+		end
+		
+		if (|fb_we && !fb_we_old) begin
+			fb_write_addr <= fb_addr;
+			fb_write_data <= fb_din;
+			fb_be <= fb_we;
+			fb_write_busy <= 1;	
+		end
+	end
+	
+	if (rst_pulse) begin
+		state <= '0;
+		ram_write <= 0;
+		ram_read  <= 0;
+	end
+	else if(!DDRAM_BUSY) begin
+		ram_write <= 0;
+		ram_read  <= 0;
+
+		case (state)
+			0: begin
+				if (dram_write_busy) begin
+					dram_write_busy <= 0;
+					ram_address <= {5'b00110,7'b0000010,dram_write_addr[19:3]};
+					ram_din		<= {2{dram_write_data}};
+					case (dram_write_addr[2])
+						1'b0: ram_be <= {dram_write_be,4'b0000};
+						1'b1: ram_be <= {4'b0000,dram_write_be};
+					endcase
+					ram_write 	<= 1;
+					ram_burst   <= 1;
+					ram_chan    <= 4'd0;
+					state       <= 3'h1;
+				end
+				else if (dram_read_busy) begin
+					ram_address <= {5'b00110,7'b0000010,dram_rcache_addr[19:5],2'b00};
+					ram_be      <= 8'hFF;
+					ram_read    <= 1;
+					ram_burst   <= 4;
+					ram_chan    <= 4'd0;
+					cache_wraddr<= '0;
+					word_cnt    <= '0;
+					state       <= 3'h2;
+				end
+				else if (prom_read_busy) begin
+					ram_address <= {5'b00110,7'b0000000,prom_rcache_addr[19:5],2'b00};
+					ram_be      <= 8'hFF;
+					ram_read    <= 1;
+					ram_burst   <= 4;
+					ram_chan    <= 4'd1;
+					cache_wraddr<= '0;
+					word_cnt    <= '0;
+					state       <= 3'h2;
+				end
+				else if (drom_read_busy) begin
+					ram_address <= {5'b00110,7'b0000001,drom_rcache_addr[19:5],2'b00};
+					ram_be      <= 8'hFF;
+					ram_read    <= 1;
+					ram_burst   <= 4;
+					ram_chan    <= 4'd2;
+					cache_wraddr<= '0;
+					word_cnt    <= '0;
+					state       <= 3'h2;
+				end
+				else if (bios_write_busy) begin
+					bios_write_busy <= 0;
+					ram_address <= {5'b00110,bios_write_addr[26:3]};
+					ram_din		<= {4{bios_write_data}};
+					case (bios_write_addr[2:1])
+						2'b00: ram_be <= {bios_be,6'b000000};
+						2'b01: ram_be <= {2'b00,bios_be,4'b0000};
+						2'b10: ram_be <= {4'b0000,bios_be,2'b00};
+						2'b11: ram_be <= {6'b000000,bios_be};
+					endcase
+					ram_write 	<= 1;
+					ram_burst   <= 1;
+					ram_chan    <= 4'd3;
+					state       <= 3'h1;
+				end
+				else if (fb_write_busy) begin
+					fb_write_busy <= 0;
+					ram_address <= fb_write_addr;
+					ram_din		<= fb_write_data;
+					ram_be      <= fb_be;
+					ram_write 	<= 1;
+					ram_burst   <= 1;
+					ram_chan    <= 4'd4;
+					state       <= 3'h1;
+				end
+			end
+
+			3'h1: begin
+				state <= 0;
+			end
+		
+			3'h2: if (DDRAM_DOUT_READY) begin
+				cache_wraddr <= cache_wraddr + 7'd1;
+				word_cnt <= word_cnt + 7'd1;
+				if (word_cnt == ram_burst[6:0] - 7'd1) begin
+					if (ram_chan == 4'd0 ) begin dram_read_busy <= 0; dram_rcache_busy <= 1; end
+					if (ram_chan == 4'd1 ) begin prom_read_busy <= 0; prom_rcache_busy <= 1; end
+					if (ram_chan == 4'd2 ) begin drom_read_busy <= 0; drom_rcache_busy <= 1; end
+					state <= 0;
+				end
+			end
+		endcase
+	end
+end
+
+wire           cache_wren = (state == 3'h2) && DDRAM_DOUT_READY && !DDRAM_BUSY;
+wire [ 63:  0] dram_cache_q,prom_cache_q,drom_cache_q;
+
+ddr_cache_ram #(2) cache0 (clk, cache_wraddr[1:0], DDRAM_DOUT, cache_wren & ram_chan == 0, dram_addr[4:3], dram_cache_q);
+ddr_cache_ram #(2) cache1 (clk, cache_wraddr[1:0], DDRAM_DOUT, cache_wren & ram_chan == 1, prom_addr[4:3], prom_cache_q);
+ddr_cache_ram #(2) cache2 (clk, cache_wraddr[1:0], DDRAM_DOUT, cache_wren & ram_chan == 2, drom_addr[4:3], drom_cache_q);
+
+always_comb begin
+	case (dram_rcache_addr[2])
+		1'b0: dram_dout = dram_cache_q[63:32];
+		1'b1: dram_dout = dram_cache_q[31:00];
+	endcase
+	dram_busy = dram_write_busy | dram_read_busy | dram_rcache_busy;
+	
+	case (prom_rcache_addr[2])
+		1'b0: prom_dout = prom_cache_q[63:32];
+		1'b1: prom_dout = prom_cache_q[31:00];
+	endcase
+	prom_busy = prom_read_busy | prom_rcache_busy;
+	
+	case (drom_rcache_addr[2:1])
+		2'b00: drom_dout = drom_cache_q[63:48];
+		2'b01: drom_dout = drom_cache_q[47:32];
+		2'b10: drom_dout = drom_cache_q[31:16];
+		2'b11: drom_dout = drom_cache_q[15:00];
+	endcase
+	drom_busy = drom_read_busy | drom_rcache_busy;
+	
+	fb_busy = fb_write_busy;
+end
+
+assign DDRAM_CLK      = clk;
+assign DDRAM_BURSTCNT = ram_burst;
+assign DDRAM_BE       = ram_be;
+assign DDRAM_ADDR     = ram_address; // RAM at 0x24000000,0x30000000
+assign DDRAM_RD       = ram_read;
+assign DDRAM_DIN      = ram_din;
+assign DDRAM_WE       = ram_write;
+
+endmodule
+
+module ddr_cache_ram #(parameter wa = 2) (
+	clock,
+	wraddress,
+	data,
+	wren,
+	rdaddress,
+	q);
+
+	input	  clock;
+	input	[wa-1:0]  wraddress;
+	input	[63:0] data;
+	input	       wren;
+	input	[wa-1:0]  rdaddress;
+	output	[63:0]  q;
+`ifndef ALTERA_RESERVED_QIS
+// synopsys translate_off
+`endif
+	tri0	  wren;
+`ifndef ALTERA_RESERVED_QIS
+// synopsys translate_on
+`endif
+
+	wire [63:0] sub_wire0;
+	wire [63:0] q = sub_wire0;
+
+	altsyncram	altsyncram_component (
+				.address_a (wraddress),
+				.byteena_a (1'b1),
+				.clock0 (clock),
+				.data_a (data),
+				.wren_a (wren),
+				.address_b (rdaddress),
+				.q_b (sub_wire0),
+				.aclr0 (1'b0),
+				.aclr1 (1'b0),
+				.addressstall_a (1'b0),
+				.addressstall_b (1'b0),
+				.byteena_b (1'b1),
+				.clock1 (1'b1),
+				.clocken0 (1'b1),
+				.clocken1 (1'b1),
+				.clocken2 (1'b1),
+				.clocken3 (1'b1),
+				.data_b ({64{1'b1}}),
+				.eccstatus (),
+				.q_a (),
+				.rden_a (1'b1),
+				.rden_b (1'b1),
+				.wren_b (1'b0));
+	defparam
+		altsyncram_component.address_aclr_b = "NONE",
+		altsyncram_component.address_reg_b = "CLOCK0",
+		altsyncram_component.clock_enable_input_a = "BYPASS",
+		altsyncram_component.clock_enable_input_b = "BYPASS",
+		altsyncram_component.clock_enable_output_b = "BYPASS",
+		altsyncram_component.intended_device_family = "Cyclone V",
+		altsyncram_component.lpm_type = "altsyncram",
+		altsyncram_component.numwords_a = 2**wa,
+		altsyncram_component.numwords_b = 2**wa,
+		altsyncram_component.operation_mode = "DUAL_PORT",
+		altsyncram_component.outdata_aclr_b = "NONE",
+		altsyncram_component.outdata_reg_b = "UNREGISTERED",
+		altsyncram_component.power_up_uninitialized = "FALSE",
+		altsyncram_component.ram_block_type = "M10K",
+		altsyncram_component.read_during_write_mode_mixed_ports = "DONT_CARE",
+		altsyncram_component.widthad_a = wa,
+		altsyncram_component.widthad_b = wa,
+		altsyncram_component.width_a = 64,
+		altsyncram_component.width_b = 64,
+		altsyncram_component.width_byteena_a = 1;
+
+endmodule
