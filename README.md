@@ -1,5 +1,6 @@
 # PsikyoSH2 core for MiSTer (WIP)
 
+PS3/5 boards are supported.
 Most of the known issues are related to sound. YMF278B requires further research.
 
 ## Hardware Requirements
