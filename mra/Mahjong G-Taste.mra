@@ -7,7 +7,9 @@
 	<manufacturer>Psikyo</manufacturer>
 	<buttons names="Button 1,Button 2,Button 3,Button 4,Start,Coin,Service,Test" />
 	<rom index="0" md5="" zip="mjgtaste.zip">
-		<part crc="d35586f2" name="eeprom-mjgtaste.u44" />
+		<interleave output="16">
+			<part crc="d35586f2" name="eeprom-mjgtaste.u44" map="12" />
+		</interleave>
 		<part>01</part>
 	</rom>
 	<rom index="1" md5="" zip="mjgtaste.zip" address="0x30000000">

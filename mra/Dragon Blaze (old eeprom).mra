@@ -7,9 +7,7 @@
 	<manufacturer>Psikyo</manufacturer>
 	<buttons names="Button 1,Button 2,Button 3,Button 4,Start,Coin,Service,Test" />
 	<rom index="0" md5="" zip="dragnblz.zip">
-		<interleave output="16">
-			<part crc="46e85da9" name="eeprom-dragnblz.u44" map="12" />
-		</interleave>
+		<part crc="70a8a3a6" name="eeprom-dragnblz.bin" />
 		<part>05</part>
 	</rom>
 	<rom index="1" md5="" zip="dragnblz.zip" address="0x30000000">
