@@ -86,8 +86,11 @@ module YMF278B
 	
 	bit  [ 1: 0] CLK_DIV;
 	bit  [ 2: 0] CYCLE_NUM;
-	always @(posedge CLK) begin
-		if (CE) begin
+	always @(posedge CLK or negedge RST_N) begin
+		if (!RST_N) begin
+			CLK_DIV <= '0;
+		end
+		else if (CE) begin
 			CLK_DIV <= CLK_DIV + 2'd1;
 			if (CLK_DIV == 2'd3) 
 				CYCLE_NUM <= CYCLE_NUM + 3'd1;
@@ -982,7 +985,7 @@ module YMF278B
 	
 	assign OPL3_DO = '0;
 	assign {OPL3_OUT_A,OPL3_OUT_B,OPL3_OUT_C,OPL3_OUT_D} = '0;
-	
+	assign IRQ_N = 1;
 	
 	assign DO = A == 3'h5 ? REG_Q : OPL3_DO | {6'b000000,LD|LD2,BUSY};
 	
