@@ -58,6 +58,7 @@ module PSH2
 	input      [ 1: 0] VER,		//0-PS3,1-PS5,
 	
 	input      [ 5: 0] SCRN_EN,
+	input      [ 8: 0] HS_OFFS,
 	input      [ 2: 0] SND_EN
 	
 `ifdef DEBUG
@@ -251,7 +252,8 @@ module PSH2
 		.VBL_N(VBL_N),
 		.V240(V240),
 		
-		.SCRN_EN(SCRN_EN)
+		.SCRN_EN(SCRN_EN),
+		.HS_OFFS(HS_OFFS)
 	);
 	
 	assign GFX_ROM_A = {!PS_ROM_CE_N[0]?3'b000:

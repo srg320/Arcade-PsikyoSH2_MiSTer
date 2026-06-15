@@ -42,7 +42,8 @@ module PS6406B
 	output             VBL_N,
 	output             V240,
 	
-	input      [ 5: 0] SCRN_EN
+	input      [ 5: 0] SCRN_EN,
+	input      [ 8: 0] HS_OFFS
 	
 `ifdef DEBUG
 	                   ,
@@ -78,8 +79,9 @@ module PS6406B
 	wire         IO_SPRRAM_SEL = (A >= (19'h00000>>1) && A <= (19'h0FFFF>>1) && !CS_N);
 	wire         PALETTE_SEL = (A >= (19'h40000>>1) && A <= (19'h43FFF>>1) && !CS_N);
 	wire         ZOOMRAM_SEL = (A >= (19'h50000>>1) && A <= (19'h501FF>>1) && !CS_N);
+	
+	bit          WE_N_OLD;
 	always @(posedge CLK or negedge RST_N) begin
-		bit          WE_N_OLD;
 		bit          VINT_PEND_OLD;
 		
 		if (!RST_N) begin
@@ -157,16 +159,16 @@ module PS6406B
 	wire [11: 0] PALR_RA = PALETTE_SEL ? A[13:2] : BG_COLOR;
 	wire [11: 0] PALG_RA = PALETTE_SEL ? A[13:2] : BG_COLOR;
 	wire [11: 0] PALB_RA = PALETTE_SEL ? A[13:2] : BG_COLOR;
-	wire         PAL_WE = PALETTE_SEL & ~(&WE_N);
+	wire         PAL_WE = PALETTE_SEL & ~(&WE_N) & WE_N_OLD;
 	bit  [17: 0] PAL_Q;
-	PSH2_PAL_RAM PALR(CLK, A[13:2], DI[15:10], PAL_WE & ~A[1] & CE, PALR_RA, PAL_Q[17:12]);
-	PSH2_PAL_RAM PALG(CLK, A[13:2], DI[ 7: 2], PAL_WE & ~A[1] & CE, PALG_RA, PAL_Q[11: 6]);
-	PSH2_PAL_RAM PALB(CLK, A[13:2], DI[15:10], PAL_WE &  A[1] & CE, PALB_RA, PAL_Q[ 5: 0]);
+	PSH2_PAL_RAM PALR(CLK, A[13:2], DI[15:10], PAL_WE & ~A[1] & ~WE_N[1] & CE, PALR_RA, PAL_Q[17:12]);
+	PSH2_PAL_RAM PALG(CLK, A[13:2], DI[ 7: 2], PAL_WE & ~A[1] & ~WE_N[0] & CE, PALG_RA, PAL_Q[11: 6]);
+	PSH2_PAL_RAM PALB(CLK, A[13:2], DI[15:10], PAL_WE &  A[1] & ~WE_N[1] & CE, PALB_RA, PAL_Q[ 5: 0]);
 	
 	//Zoom RAM
 	bit  [ 7: 0] SPR_EVAL_ZOOMX,SPR_EVAL_ZOOMY;
 	
-	wire         ZOOM_RAM_WE = ZOOMRAM_SEL & ~(&WE_N);
+	wire         ZOOM_RAM_WE = ZOOMRAM_SEL & ~(&WE_N) & WE_N_OLD;
 	wire [ 7: 0] ZOOM_RAM_X_RA = SPR_EVAL_ZOOMX;
 	wire [ 7: 0] ZOOM_RAM_Y_RA = SPR_LOAD_RUN ? SPR_LOAD_ZOOMY : SPR_EVAL_ZOOMY;
 	bit  [15: 0] IO_ZOOM_RAM_Q,ZOOM_RAM_X_Q,ZOOM_RAM_Y_Q;
@@ -184,7 +186,7 @@ module PS6406B
 	
 	//Video generator
 	bit  [ 1: 0] DOTCLK_DIV;
-	always @(posedge CLK) begin
+	always @(posedge CLK or negedge RST_N) begin
 		if (!RST_N) begin
 			DOTCLK_DIV <= '0;
 		end else if (CE) begin
@@ -193,6 +195,8 @@ module PS6406B
 	end
 	assign DOT_CE_R = (DOTCLK_DIV == 3) & CE;
 	
+	wire [ 8: 0] DOT_PER_LINE = 9'd456;
+	wire [ 8: 0] HSYNC_START = 9'h168 + HS_OFFS;
 	wire [ 8: 0] VBLK_START = REGS[3][7] == 1'b1 ? 9'h0F0 : 9'h0E0;
 	wire [ 8: 0] VSYNC_START = REGS[3][7] == 1'b1 ? 9'd237+9'd16 : 9'd237;
 	bit  [ 8: 0] HCNT;
@@ -214,7 +218,7 @@ module PS6406B
 			if (DOT_CE_R) begin
 				VINT_PEND <= 0;
 				HCNT <= HCNT + 9'd1;
-				if (HCNT == 9'd456 - 1) begin
+				if (HCNT == DOT_PER_LINE - 1) begin
 					HCNT <= '0;
 					
 					VCNT <= VCNT + 9'd1;
@@ -233,27 +237,26 @@ module PS6406B
 					VINT_PEND <= 1;
 				end
 				
-				if (HCNT == 9'd456 - 1 && VCNT == VSYNC_START - 9'd1) begin
+				if (HCNT == DOT_PER_LINE - 1 && VCNT == VSYNC_START - 9'd1) begin
 					VSYNC <= 1;
 				end
-				if (HCNT == 9'd456 - 1 && VCNT == VSYNC_START + 9'd3 - 1) begin
+				if (HCNT == DOT_PER_LINE - 1 && VCNT == VSYNC_START + 9'd3 - 1) begin
 					VSYNC <= 0;
 				end
 				
-				if (HCNT == (9'd379 + 9'd8 - 9'd1)) begin
+				if (HCNT == HSYNC_START - 9'h1) begin
 					HSYNC <= 1;
 				end
-				if (HCNT == (9'd379 + 9'd8 + 9'd58 - 9'd1)) begin
+				if (HCNT == HSYNC_START + 9'd32 - 9'h1) begin
 					HSYNC <= 0;
 				end
 				
 				if (HCNT == 9'd320 - 1) begin
 					HBLK <= 1;
 				end
-				if (HCNT == 9'd456 - 1) begin
+				if (HCNT == DOT_PER_LINE - 1) begin
 					HBLK <= 0;
 				end
-
 			end
 		end
 	end
@@ -937,13 +940,13 @@ module PS6406B
 		end else if (EN) begin
 			N = BG_FETCH_NUM;
 			if (DOT_CE_R) begin
-				BG_FETCH_PAL2[N] <= BG_FETCH_PAL;
 				BG_FETCH_ACCESS2 <= BG_FETCH_ACCESS;
 				
 				if (BG_FETCH_ACCESS[N]) begin
 					BG_FETCH_DATA2[N] <= BG_BPP[N]         ? {BG_FETCH_DATA[31:24],BG_FETCH_DATA[23:16],BG_FETCH_DATA[15:8],BG_FETCH_DATA[7:0]} : 
 											   !BG_FETCH_OFFS[2] ? {4'h0,BG_FETCH_DATA[31:28],4'h0,BG_FETCH_DATA[27:24],4'h0,BG_FETCH_DATA[23:20],4'h0,BG_FETCH_DATA[19:16]} :
 																	     {4'h0,BG_FETCH_DATA[15:12],4'h0,BG_FETCH_DATA[11: 8],4'h0,BG_FETCH_DATA[ 7: 4],4'h0,BG_FETCH_DATA[ 3: 0]};
+					BG_FETCH_PAL2[N] <= BG_FETCH_PAL;
 				end
 				
 `ifdef DEBUG
