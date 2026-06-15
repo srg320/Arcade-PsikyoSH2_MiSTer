@@ -14,12 +14,13 @@ module sdram1
 
 	// cpu/chipset interface
 	input             init,			// init signal after FPGA config to initialize RAM
+	output reg        init_done,
 	input             clk,			// sdram is accessed at up to 128MHz
 	input             sync,			//
 
-	input     [25: 1] waddr,
+	input     [25: 3] waddr,
 	input             wr,
-	input     [15: 0] din,
+	input     [63: 0] din,
 	
 	input     [25: 1] raddr1,
 	input             rd1,
@@ -64,7 +65,6 @@ module sdram1
 	// initialization 
 	reg [2:0] init_state = '0;
 	reg [1:0] mode;
-	reg       init_done = 0;
 	always @(posedge clk) begin
 		reg [4:0] reset = 5'h1f;
 		reg init_old = 0;
@@ -111,7 +111,7 @@ module sdram1
 	} state_t;
 	state_t state[6];
 	reg [ 4: 0] st_num;
-	reg [15: 0] data;
+	reg [63: 0] data;
 	
 	reg         read2;
 	always @(posedge clk) begin
@@ -126,11 +126,13 @@ module sdram1
 			
 			if (!sync && sync_old) begin
 				st_num <= 5'd1;
-				raddr2_prev <= raddr2;
-				read2 <= (rd2 && raddr2 != raddr2_prev);
 			end
 			if (sync && !sync_old) begin
 				data <= din;
+			end
+			if (st_num[3:0] == 4'h7) begin
+				raddr2_prev <= raddr2;
+				read2 <= (rd2 && raddr2 != raddr2_prev);
 			end
 		end
 	end
@@ -141,21 +143,54 @@ module sdram1
 			state[0].CMD <= init_state == STATE_START ? CTRL_RAS : 
 			                init_state == STATE_CONT  ? CTRL_CAS : 
 								                             CTRL_IDLE;
-			state[0].RFS <= 1;
 		end else begin
+			if (wr)
 			case (st_num[3:0])
 				4'd1:  begin state[0].CMD  <= CTRL_RAS;
-								 state[0].ADDR <= !wr ? {raddr1[23:2],1'b0} : waddr[23:1];
-				             state[0].BANK <= !wr ? raddr1[25:24] : waddr[25:24];
+								 state[0].ADDR <= {waddr[23:3],2'b00};
+				             state[0].BANK <= waddr[25:24]; end
+								  
+				4'd4:  begin state[0].CMD  <= CTRL_CAS;
+								 state[0].ADDR <= {waddr[23:3],2'b00};
+								 state[0].DATA <= data[63:48];
+								 state[0].WE   <= 1;
+							 	 state[0].BE   <= 2'b11;
+				             state[0].BANK <= waddr[25:24]; end
+								 
+				4'd5:  begin state[0].CMD  <= CTRL_CAS;
+								 state[0].ADDR <= {waddr[23:3],2'b01};
+								 state[0].DATA <= data[47:32];
+								 state[0].WE   <= 1;
+							 	 state[0].BE   <= 2'b11;
+				             state[0].BANK <= waddr[25:24]; end
+								 
+				4'd6:  begin state[0].CMD  <= CTRL_CAS;
+								 state[0].ADDR <= {waddr[23:3],2'b10};
+								 state[0].DATA <= data[31:16];
+								 state[0].WE   <= 1;
+							 	 state[0].BE   <= 2'b11;
+				             state[0].BANK <= waddr[25:24]; end
+								 
+				4'd7:  begin state[0].CMD  <= CTRL_CAS;
+								 state[0].ADDR <= {waddr[23:3],2'b11};
+								 state[0].DATA <= data[15:0];
+								 state[0].WE   <= 1;
+							 	 state[0].BE   <= 2'b11;
+				             state[0].BANK <= waddr[25:24]; end
+								
+				default:;
+			endcase
+			else
+			case (st_num[3:0])
+				4'd1:  begin state[0].CMD  <= CTRL_RAS;
+								 state[0].ADDR <= {raddr1[23:2],1'b0};
+				             state[0].BANK <= raddr1[25:24];
 				             state[0].CH   <= 0;  end
 								  
 				4'd4:  begin state[0].CMD  <= CTRL_CAS;
-								 state[0].ADDR <= !wr ? {raddr1[23:2],1'b0} : waddr[23:1];
-				             state[0].RD   <= ~wr;
-								 state[0].DATA <= data;
-								 state[0].WE   <= wr;
-							 	 state[0].BE   <= 2'b11;
-				             state[0].BANK <= !wr ? raddr1[25:24] : waddr[25:24];
+								 state[0].ADDR <= {raddr1[23:2],1'b0};
+				             state[0].RD   <= 1;
+				             state[0].BANK <= raddr1[25:24];
 				             state[0].CH   <= 0;  end
 								 
 				4'd8:  begin state[0].CMD  <= read2 ? CTRL_RAS : CTRL_IDLE;
@@ -165,7 +200,7 @@ module sdram1
 								
 				4'd11: begin state[0].CMD  <= read2 ? CTRL_CAS : CTRL_IDLE;
 								 state[0].ADDR <= {2'b11,raddr2[21:1]};
-				             state[0].RD   <= read2 & ~wr;
+				             state[0].RD   <= read2;
 				             state[0].BANK <= 2'b11;
 				             state[0].CH   <= 1;  end
 								
@@ -257,7 +292,6 @@ module sdram1
 	
 	assign SDRAM_CKE = 1;
 	assign {SDRAM_DQMH,SDRAM_DQML} = SDRAM_A[12:11];
-	
 	
 `ifdef DEBUG
 	assign dbg_ctrl_bank = ctrl_bank;

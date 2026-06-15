@@ -32,10 +32,15 @@ module ddram
 	input          drom_rd,
 	output         drom_busy,
 
-	input  [26: 1] bios_addr,
+	input  [20: 1] bios_addr,
 	input  [15: 0] bios_din,
 	input  [ 1: 0] bios_wr,
 	output         bios_busy,
+	
+	input  [25: 3] rom_addr,
+	output [63: 0] rom_dout,
+	input          rom_rd,
+	output         rom_busy,
 
 	input  [31: 3] fb_addr,
 	input  [63: 0] fb_din,
@@ -69,10 +74,12 @@ reg            drom_rcache_dirty;
 reg            drom_rcache_busy;
 reg            drom_read_busy;
 
-reg  [ 26:  1] bios_write_addr;
+reg  [ 20:  1] bios_write_addr;
 reg  [ 15:  0] bios_write_data;
 reg  [  1:  0] bios_be;
 reg            bios_write_busy;
+
+reg            rom_read_busy;
 
 reg  [ 31:  3] fb_write_addr;
 reg  [ 63:  0] fb_write_data;
@@ -89,12 +96,14 @@ reg            dram_rd_old,dram_wr_old;
 reg            prom_rd_old;
 reg            drom_rd_old;
 reg            bios_wr_old;
+reg            rom_rd_old;
 reg            fb_we_old;
 always @(posedge clk) begin
 	{dram_rd_old,dram_wr_old} <= {dram_rd,|dram_wr};
 	prom_rd_old <= prom_rd;
 	drom_rd_old <= drom_rd;
 	bios_wr_old <= |bios_wr;
+	rom_rd_old <= rom_rd;
 	fb_we_old <= |fb_we;
 	old_rst <= rst;
 end
@@ -135,6 +144,10 @@ always @(posedge clk) begin
 			drom_rcache_addr <= drom_addr;
 			drom_rcache_busy <= 1;
 			drom_rcache_dirty <= 0;
+		end
+		
+		if (rom_rd && !rom_rd_old) begin
+			rom_read_busy <= 1;
 		end
 	end
 		
@@ -180,7 +193,7 @@ always @(posedge clk) begin
 			0: begin
 				if (dram_write_busy) begin
 					dram_write_busy <= 0;
-					ram_address <= {5'b00110,7'b0000010,dram_write_addr[19:3]};
+					ram_address <= {5'b00110,7'b1000010,dram_write_addr[19:3]};
 					ram_din		<= {2{dram_write_data}};
 					case (dram_write_addr[2])
 						1'b0: ram_be <= {dram_write_be,4'b0000};
@@ -192,7 +205,7 @@ always @(posedge clk) begin
 					state       <= 3'h1;
 				end
 				else if (dram_read_busy) begin
-					ram_address <= {5'b00110,7'b0000010,dram_rcache_addr[19:5],2'b00};
+					ram_address <= {5'b00110,7'b1000010,dram_rcache_addr[19:5],2'b00};
 					ram_be      <= 8'hFF;
 					ram_read    <= 1;
 					ram_burst   <= 4;
@@ -202,7 +215,7 @@ always @(posedge clk) begin
 					state       <= 3'h2;
 				end
 				else if (prom_read_busy) begin
-					ram_address <= {5'b00110,7'b0000000,prom_rcache_addr[19:5],2'b00};
+					ram_address <= {5'b00110,7'b1000000,prom_rcache_addr[19:5],2'b00};
 					ram_be      <= 8'hFF;
 					ram_read    <= 1;
 					ram_burst   <= 4;
@@ -212,7 +225,7 @@ always @(posedge clk) begin
 					state       <= 3'h2;
 				end
 				else if (drom_read_busy) begin
-					ram_address <= {5'b00110,7'b0000001,drom_rcache_addr[19:5],2'b00};
+					ram_address <= {5'b00110,7'b1000001,drom_rcache_addr[19:5],2'b00};
 					ram_be      <= 8'hFF;
 					ram_read    <= 1;
 					ram_burst   <= 4;
@@ -223,7 +236,7 @@ always @(posedge clk) begin
 				end
 				else if (bios_write_busy) begin
 					bios_write_busy <= 0;
-					ram_address <= {5'b00110,bios_write_addr[26:3]};
+					ram_address <= {5'b00110,6'b100000,bios_write_addr[20:3]};
 					ram_din		<= {4{bios_write_data}};
 					case (bios_write_addr[2:1])
 						2'b00: ram_be <= {bios_be,6'b000000};
@@ -236,6 +249,16 @@ always @(posedge clk) begin
 					ram_chan    <= 4'd3;
 					state       <= 3'h1;
 				end
+				else if (rom_read_busy) begin
+					ram_address <= {5'b00110,1'b0,rom_addr};
+					ram_be      <= 8'hFF;
+					ram_read    <= 1;
+					ram_burst   <= 1;
+					ram_chan    <= 4'd4;
+					cache_wraddr<= '0;
+					word_cnt    <= '0;
+					state       <= 3'h2;
+				end
 				else if (fb_write_busy) begin
 					fb_write_busy <= 0;
 					ram_address <= fb_write_addr;
@@ -243,7 +266,7 @@ always @(posedge clk) begin
 					ram_be      <= fb_be;
 					ram_write 	<= 1;
 					ram_burst   <= 1;
-					ram_chan    <= 4'd4;
+					ram_chan    <= 4'd5;
 					state       <= 3'h1;
 				end
 			end
@@ -259,6 +282,7 @@ always @(posedge clk) begin
 					if (ram_chan == 4'd0 ) begin dram_read_busy <= 0; dram_rcache_busy <= 1; end
 					if (ram_chan == 4'd1 ) begin prom_read_busy <= 0; prom_rcache_busy <= 1; end
 					if (ram_chan == 4'd2 ) begin drom_read_busy <= 0; drom_rcache_busy <= 1; end
+					if (ram_chan == 4'd4 ) begin rom_read_busy <= 0; rom_dout <= DDRAM_DOUT; end
 					state <= 0;
 				end
 			end
@@ -293,6 +317,8 @@ always_comb begin
 		2'b11: drom_dout = drom_cache_q[15:00];
 	endcase
 	drom_busy = drom_read_busy | drom_rcache_busy;
+	
+	rom_busy = rom_read_busy;
 	
 	fb_busy = fb_write_busy;
 end

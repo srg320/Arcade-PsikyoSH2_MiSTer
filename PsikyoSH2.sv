@@ -189,7 +189,6 @@ module emu
 	assign FB_FORCE_BLANK = 0;
 	
 
-
 	///////////////////////////////////////////////////
 	//
 	// Status Bit Map:
@@ -197,24 +196,29 @@ module emu
 	// 0         1         2         3          4         5         6   	   7         8         9
 	// 01234567890123456789012345678901 23456789012345678901234567890123 45678901234567890123456789012345
 	// 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
-	// XXXXXXXXX                        X
+	// XXXXXXXXX                        XXXXXX
 	
 	`include "build_id.v"
 	localparam CONF_STR = {
 		"Arcade-PsikyoSH2;;",
+`ifdef DEBUG
 		"FS1,BIN,Load bios;",
-		"FS2,BIN,Load cartridge;",
+		"FS0,BIN,Load cartridge;",
 		"-;",
-//		"O[32],Debug mode,Off,On;",
-//		"-;",
+		"O[32],Ver,0,1;",
+`endif
+		"-;",
 		
 		"P1,Audio & Video;",
 		"P1O[2:1],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 		"P1O[4:3],Rotate,No,CCW,CW;",
 		"P1O[5],Flip 180,Off,On;",
 		"P1O[8:6],Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer,HV-Integer;",
+		"-;",
 
-//		"P2,Input;",
+		"P2,Debug;",
+		"P2O[37:33],Hsync offs,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,-16,-15,-14,-13,-12,-11,-10,-9,-8,-7,-6,-5,-4,-3,-2,-1;",
+		"-;",
 
 		"R0,Reset;",
 		"J1,B1,B2,B3,B4,Start,Coin,Test,Service;",
@@ -322,9 +326,9 @@ module emu
 	
 	assign menumask = '0;
 	
-	wire eep_download = ioctl_download & (ioctl_index[5:2] == 4'b0000 && ioctl_index[1:0] == 2'h0);
+	wire cart_download = ioctl_download & (ioctl_index[5:2] == 4'b0000 && ioctl_index[1:0] == 2'h0);
 	wire bios_download = ioctl_download & (ioctl_index[5:2] == 4'b0000 && ioctl_index[1:0] == 2'h1);
-	wire cart_download = ioctl_download & (ioctl_index[5:2] == 4'b0000 && ioctl_index[1:0] == 2'h2);
+	wire eep_download = ioctl_download & (ioctl_index[5:2] == 4'b0000 && ioctl_index[1:0] == 2'h2);
 	wire save_download = ioctl_download & (ioctl_index[5:2] == 4'b0001);
 	wire save_upload = ioctl_upload & (ioctl_index[5:2] == 4'b0001);
 	
@@ -343,7 +347,7 @@ module emu
 	
 	wire reset = RESET | status[0] | buttons[1];
 	
-	reg rst_ram = 0;
+	reg rst_ram = 0, loader_rst = 0;
 	reg download;
 	always @(posedge clk_sys) begin
 		reg [7:0] delay_cnt;
@@ -357,21 +361,42 @@ module emu
 			delay_cnt <= '1;
 		end
 	end
+	wire rst_sys = reset | download | rst_ram | loader_rst;
 	
 	//[1:0] - ver: 0-PS3,1-PS5
 	//[2] - debug mode
-	reg  [7:0] BOARD_VER = 8'h01;
+	//[5:4] - input mode: 1,2,3,4 buttons
+	reg  [7:0] BOARD_CONF = 8'h05;
 	always @(posedge clk_sys) begin
 		if (eep_download && ioctl_wr && ioctl_addr[8:0] == 9'h100) begin
-			BOARD_VER <= ioctl_data[7:0];
+			BOARD_CONF <= ioctl_data[7:0];
 		end
 	end
 	
-	wire rst_sys = reset | download | rst_ram;
-
-	wire [7:0] joy1 = ~{joystick_0[3],joystick_0[2],joystick_0[0],joystick_0[1],joystick_0[4],joystick_0[5],joystick_0[6],joystick_0[8]};
-	wire [7:0] joy2 = ~{joystick_1[3],joystick_1[2],joystick_1[0],joystick_1[1],joystick_1[4],joystick_1[5],joystick_1[6],joystick_1[8]};
-	wire [7:0] joy3 = ~{joystick_0[6],joystick_0[7],2'b00,joystick_1[6],joystick_1[7],2'b00};
+	wire [7:0] p1,p2,p3,p4;
+	always_comb begin
+		if (BOARD_CONF[5:4] == 2'h0) begin
+			p1 = ~{joystick_0[3],joystick_0[2],joystick_0[0],joystick_0[1],joystick_0[4],2'b00,joystick_0[5]};
+			p2 = ~{joystick_1[3],joystick_1[2],joystick_1[0],joystick_1[1],joystick_1[4],2'b00,joystick_1[5]};
+			p3 = 8'hFF;
+			p4 = ~{1'b0,BOARD_CONF[2],joystick_0[7],joystick_0[8],2'b11,joystick_1[6],joystick_0[6]};
+		end else if (BOARD_CONF[5:4] == 2'h1) begin
+			p1 = ~{joystick_0[3],joystick_0[2],joystick_0[0],joystick_0[1],joystick_0[4],joystick_0[5],1'b0,joystick_0[6]};
+			p2 = ~{joystick_1[3],joystick_1[2],joystick_1[0],joystick_1[1],joystick_1[4],joystick_1[5],1'b0,joystick_1[6]};
+			p3 = 8'hFF;
+			p4 = ~{1'b0,BOARD_CONF[2],joystick_0[8],joystick_0[9],2'b11,joystick_1[7],joystick_0[7]};
+		end else if (BOARD_CONF[5:4] == 2'h2) begin
+			p1 = ~{joystick_0[3],joystick_0[2],joystick_0[0],joystick_0[1],joystick_0[4],joystick_0[5],joystick_0[6],joystick_0[7]};
+			p2 = ~{joystick_1[3],joystick_1[2],joystick_1[0],joystick_1[1],joystick_1[4],joystick_1[5],joystick_1[6],joystick_1[7]};
+			p3 = 8'hFF;
+			p4 = ~{1'b0,BOARD_CONF[2],joystick_0[9],joystick_0[10],2'b11,joystick_1[8],joystick_0[8]};
+		end else begin
+			p1 = ~{joystick_0[3],joystick_0[2],joystick_0[0],joystick_0[1],joystick_0[4],joystick_0[5],1'b0,joystick_0[8]};
+			p2 = ~{joystick_1[3],joystick_1[2],joystick_1[0],joystick_1[1],joystick_1[4],joystick_1[5],1'b0,joystick_1[8]};
+			p3 = ~{joystick_0[6],joystick_0[7],2'b00,joystick_1[6],joystick_1[7],2'b00};
+			p4 = ~{1'b0,BOARD_CONF[2],joystick_0[10],joystick_0[11],2'b11,joystick_1[9],joystick_0[9]};
+		end
+	end
 	
 	wire [19: 1] ROM_A;
 	wire [31: 0] ROM_D;
@@ -461,14 +486,15 @@ module emu
 		.SOUND_L(SOUND_L),
 		.SOUND_R(SOUND_R),
 		
-		.P1(joy1),
-		.P2(joy2),
-		.P3(joy3),
-		.P4(~{1'b0,BOARD_VER[2],joystick_0[9],joystick_0[10],2'b11,joystick_1[8],joystick_0[8]}),
+		.P1(p1),
+		.P2(p2),
+		.P3(p3),
+		.P4(p4),
 		
-		.VER(BOARD_VER[1:0]),
+		.VER(BOARD_CONF[1:0]),
 		
 		.SCRN_EN(SCRN_EN),
+		.HS_OFFS({{4{status[37]}},status[37:33]}),
 		.SND_EN(SND_EN)
 		
 `ifdef DEBUG
@@ -481,9 +507,10 @@ module emu
 	assign AUDIO_R = SOUND_R;
 
 	
-	//ROM (GFX-0x0000000..0x3C00000,Sound-0x3C00000..0x3FFFFFF)
-	wire [31:0] sdr1_dout1;
-	wire [15:0] sdr1_dout2;
+	//GFX/Sound ROM (GFX-0x0000000..0x3C00000,Sound-0x3C00000..0x3FFFFFF)
+	wire        sdr_rdy;
+	wire [31:0] sdr_dout1;
+	wire [15:0] sdr_dout2;
 	sdram1 sdram1
 	(
 		.SDRAM_CLK(SDRAM_CLK),
@@ -500,26 +527,77 @@ module emu
 		
 		.clk(clk_ram),
 		.init(status[0]),
-		.sync(cart_download ? ioctl_wr : DCLK),
+		.init_done(sdr_rdy),
+		.sync(loader_state != 0 ? sdr_rom_wr : DCLK),
 	
-		.waddr(ioctl_addr[25:1]),
-		.wr  (cart_download),
-		.din (ioctl_data),
+		.waddr(sdr_rom_addr),
+		.wr  (loader_state != 0),
+		.din (sdr_rom_data),
 		
 		.raddr1({GFX_ROM_A[23:0],1'b0}),
 		.rd1 (~GFX_ROM_RD_N),
-		.dout1(sdr1_dout1),
+		.dout1(sdr_dout1),
 		
 		.raddr2(SOUND_ROM_A[21:1]),
 		.rd2 (~SOUND_ROM_RD_N),
-		.dout2(sdr1_dout2)
+		.dout2(sdr_dout2)
 	);
-	assign GFX_ROM_D = sdr1_dout1;
-	assign SOUND_ROM_D = SOUND_ROM_A[0] ? sdr1_dout2[15:8] : sdr1_dout2[7:0];
+	assign GFX_ROM_D = sdr_dout1;
+	assign SOUND_ROM_D = !SOUND_ROM_A[0] ? sdr_dout2[15:8] : sdr_dout2[7:0];
 
 	//Prog/Data ROM, DRAM
-	always @(posedge clk_sys) begin
+	reg  [ 3: 0] loader_state = 0;
+	reg  [25: 3] ddr_rom_addr;
+	reg  [63: 0] ddr_rom_do;
+	reg          ddr_rom_rd;
+	wire         ddr_rom_busy;
+	reg  [25: 3] sdr_rom_addr;
+	reg  [63: 0] sdr_rom_data;
+	reg          sdr_rom_wr;
+	always @(posedge clk_sys) begin		
 		ioctl_wait <= (bios_download && bios_busy);
+		
+		if (eep_download || status[0]) begin
+			ddr_rom_addr <= '0;
+			ddr_rom_rd <= 0;
+			loader_state = 4'd1;
+			loader_rst <= 1;
+		end
+		else if (sdr_rdy) begin
+			ddr_rom_rd <= 0;
+			sdr_rom_wr <= 0;
+			case (loader_state)
+				4'd0: ;
+				
+				4'd1: begin
+					ddr_rom_rd <= 1;
+					loader_state = 4'd2;
+				end
+				
+				4'd2: if (!ddr_rom_busy) begin
+					sdr_rom_data <= ddr_rom_do;
+					sdr_rom_wr <= 1;
+					ddr_rom_addr <= ddr_rom_addr + 1'd1;
+					ddr_rom_rd <= 1;
+					loader_state = 4'd3;
+				end
+				
+				4'd3,4'd4,4'd5,4'd6,4'd7,4'd8: begin
+					loader_state = loader_state + 4'd1;
+				end
+				
+				4'd9: begin
+					sdr_rom_addr <= sdr_rom_addr + 1'd1;
+					if (ddr_rom_addr == 0) begin
+						loader_state = 4'd0; 
+						loader_rst <= 0;
+					end
+					else  begin
+						loader_state = 4'd2;
+					end
+				end
+			endcase
+		end
 	end
 	
 	wire [15:0] drom_do;
@@ -551,11 +629,17 @@ module emu
 		.drom_dout(drom_do),
 		.drom_busy(drom_busy),
 	
-		//BIOS/CART load
-		.bios_addr({6'b000000,ioctl_addr[20:1]}),
+		//PROG/DATA ROM load
+		.bios_addr(ioctl_addr[20:1]),
 		.bios_din ({ioctl_data[7:0],ioctl_data[15:8]}),
 		.bios_wr  ({2{bios_download & ioctl_wr}}),
 		.bios_busy(bios_busy),
+	
+		//GFX/Sound ROM loader
+		.rom_addr(ddr_rom_addr),
+		.rom_rd  (ddr_rom_rd),
+		.rom_dout(ddr_rom_do),
+		.rom_busy(ddr_rom_busy),
 	
 		//FB
 		.fb_addr(fb_addr),
