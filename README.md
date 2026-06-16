@@ -7,7 +7,7 @@ Most of the known issues are related to sound. YMF278B requires further research
 - single 64MB SDRAM Module
 
 ## Installation
-1. Copy the core .rbf file to /_Arcade/cores folder.
-2. Copy the '.mra' file to /_Arcade/PsikyoSH2 folder.
-3. Place the appropriate ROM .zip files in /games/mame directory.
+1. Copy the latest .rbf file from `releases/` to `/_Arcade/cores/PsikyoSH2.rbf`
+2. Copy all the '.mra' files from `mra/` to the `/_Arcade/_PsikyoSH2` folder.
+3. Place the appropriate ROM .zip files in the `/games/mame` folder (the .zip names may be found inside the mra files).
 
