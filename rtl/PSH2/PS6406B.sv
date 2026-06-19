@@ -530,7 +530,7 @@ module PS6406B
 					DRAW_FIRST <= 0;
 					if (SPR_FETCH_RUN) begin
 						if ((FETCH_NEXT_WORD && {NEW_TILE_X_OVF,NEW_TILE_X} > {1'b0,SPR_LIST.W}) || (FETCH_NEXT_WORD && !DRAW_X[9] && DRAW_X[8:0] >= 9'h140)) begin
-							{SPR_FETCH_TILE_X,SPR_FETCH_DOT_X,SPR_FETCH_X_FRAC} <= '0;
+							{SPR_FETCH_TILE_X,SPR_FETCH_DOT_X,SPR_FETCH_X_FRAC} <= 18'h00200;
 							SPR_X <= '0;
 							DRAW_FIRST <= 1;
 							SPR_FETCH_CNT <= SPR_FETCH_CNT + 8'd1;
@@ -558,7 +558,7 @@ module PS6406B
 				if (HCNT == 9'h165 && (!VBLK || VCNT >= 9'h1FE)) begin
 					SPR_FETCH_LINE = VCNT[0];
 					SPR_FETCH_CNT <= '0;
-					{SPR_FETCH_TILE_X,SPR_FETCH_DOT_X,SPR_FETCH_X_FRAC} <= '0;
+					{SPR_FETCH_TILE_X,SPR_FETCH_DOT_X,SPR_FETCH_X_FRAC} <= 18'h00200;
 					SPR_X <= '0;
 					DRAW_FIRST <= 1;
 					SPR_FETCH_RUN <= (SPR_EVAL_CNT != 9'd0);
@@ -791,10 +791,10 @@ module PS6406B
 			BG_X <= '{4{'0}};
 			BG_PARAM <= '{4{BG_INIT}};
 		end else if (EN) begin
-			BG_X_INC[0] = BG_PARAM[0].ATTR.ZOOM == 8'h00 ? {9'h001,8'h00} : {9'h000,BG_PARAM[0].ATTR.ZOOM};
-			BG_X_INC[1] = BG_PARAM[1].ATTR.ZOOM == 8'h00 ? {9'h001,8'h00} : {9'h000,BG_PARAM[1].ATTR.ZOOM};
-			BG_X_INC[2] = BG_PARAM[2].ATTR.ZOOM == 8'h00 ? {9'h001,8'h00} : {9'h000,BG_PARAM[2].ATTR.ZOOM};
-			BG_X_INC[3] = BG_PARAM[3].ATTR.ZOOM == 8'h00 ? {9'h001,8'h00} : {9'h000,BG_PARAM[3].ATTR.ZOOM};
+			BG_X_INC[0] = {9'h001,BG_PARAM[0].ATTR.ZOOM};
+			BG_X_INC[1] = {9'h001,BG_PARAM[1].ATTR.ZOOM};
+			BG_X_INC[2] = {9'h001,BG_PARAM[2].ATTR.ZOOM};
+			BG_X_INC[3] = {9'h001,BG_PARAM[3].ATTR.ZOOM};
 			
 			if (DOT_CE_R) begin;
 				if (HCNT >= 9'h1C5 || HCNT <= 9'h13F) begin
@@ -890,7 +890,7 @@ module PS6406B
 				if (HCNT >= 9'h168 && HCNT <= 9'h16B) begin
 					{BG_ROM_X[HCNT[1:0]],BG_ROM_X_FRAC[HCNT[1:0]]} <= {9'h0 - BG_PARAM[HCNT[1:0]].SCROLL.X,8'h00};
 				end else if (|BGROM_ACCESS0) begin
-					BG_ROM_X_INC = BG_PARAM[BG_N].ATTR.ZOOM == 8'h00 ? {9'h001,8'h00} : {9'h000,BG_PARAM[BG_N].ATTR.ZOOM};
+					BG_ROM_X_INC = {9'h001,BG_PARAM[BG_N].ATTR.ZOOM};
 					{BG_ROM_X[BG_N],BG_ROM_X_FRAC[BG_N]} <= {BG_ROM_X[BG_N],BG_ROM_X_FRAC[BG_N]} + (BG_ROM_X_INC << 2); 
 				end
 				BG_ROM_ADDR <= BG_BPP[BG_N] ? {TILE_NUM,PIX_Y,PIX_X[3:2]} : {1'b0,TILE_NUM,PIX_Y,PIX_X[3:3]};
@@ -1004,12 +1004,12 @@ module PS6406B
 	assign ROM_ADDR = |BGROM_ACCESS1 ? BG_ROM_ADDR : SPR_ROM_ADDR;
 	assign RENDER_SRAM_CYCLE = (BGRAM_SLOT != BGRAM_EMPTY) || (SPR_LOAD_RUN && SPR_LOAD_STATE != 3'h7);
 	
-	//Cycle2
+	//Cycle4
 	bit  [ 7: 0] BG_OUT_PIX[4];
 	bit  [ 7: 0] BG_OUT_PAL[4];
 	bit  [ 7: 0] SPR_OUT_PIX;
 	bit  [ 7: 0] SPR_OUT_PAL,SPR_OUT_ALPHA;
-	bit  [ 2: 0] DOT_FST,DOT_SEC,DOT_THD;	
+	bit  [ 2: 0] DOT_FST,DOT_SEC,DOT_THD,DOT_FTH;	
 	always @(posedge CLK or negedge RST_N) begin	
 		bit  [ 2: 0] BG_PIX_POS[4];
 		bit  [ 7: 0] BG_PIX[4];
@@ -1020,13 +1020,13 @@ module PS6406B
 		bit          SPR_VIS;
 		bit  [ 2: 0] POST_PRI;
 		bit          POST_VIS;
-		bit  [ 2: 0] FST_PRI,SEC_PRI,THD_PRI;
-		bit  [ 2: 0] FST,SEC,THD;
+		bit  [ 2: 0] FST_PRI,SEC_PRI,THD_PRI,FTH_PRI;
+		bit  [ 2: 0] FST,SEC,THD,FTH;
 		
 		if (!RST_N) begin
 			BG_OUT_PIX <= '{4{'0}};
 			BG_OUT_PAL <= '{4{'0}};
-			{DOT_FST,DOT_SEC,DOT_THD} <= '0;
+			{DOT_FST,DOT_SEC,DOT_THD,DOT_FTH} <= '0;
 		end else if (EN) begin		
 			for (int i=0;i<4;i++) begin
 				BG_PIX_POS[i] = {1'b0,BG_DISP_X[1:0]} + {1'b0,2'h0-BG_PARAM[i].SCROLL.X[1:0]};
@@ -1049,107 +1049,139 @@ module PS6406B
 				SPR_OUT_PAL <= SPR_LINE_DOUT[15:8];
 				SPR_OUT_ALPHA <= SPR_ALPHA[SPR_LINE_DOUT[18:16]];
 				
-				{FST,SEC,THD} = {3'h7,3'h7,3'h7};
-				{FST_PRI,SEC_PRI,THD_PRI} = {3'h0,3'h0,3'h0};
+				{FST,SEC,THD,FTH} = {3'h7,3'h7,3'h7,3'h7};
+				{FST_PRI,SEC_PRI,THD_PRI,FTH_PRI} = {3'h0,3'h0,3'h0,3'h0};
 				     if (SPR_PRI >= FST_PRI && SPR_VIS) begin
+					FTH = THD;  FTH_PRI = THD_PRI;
 					THD = SEC;  THD_PRI = SEC_PRI;
 					SEC = FST;  SEC_PRI = FST_PRI;
 					FST = 3'd4; FST_PRI = SPR_PRI;
 				end 
 				
 				     if (BG_PRI[0] >= FST_PRI && BG_VIS[0]) begin
+					FTH = THD;  FTH_PRI = THD_PRI;
 					THD = SEC;  THD_PRI = SEC_PRI;
 					SEC = FST;  SEC_PRI = FST_PRI;
 					FST = 3'd0; FST_PRI = BG_PRI[0];
 				end 
 				else if (BG_PRI[0] >= SEC_PRI && BG_VIS[0]) begin
+					FTH = THD;  FTH_PRI = THD_PRI;
 					THD = SEC;  THD_PRI = SEC_PRI;
 					SEC = 3'd0; SEC_PRI = BG_PRI[0];
 				end 
+//				else if (BG_PRI[0] >= THD_PRI && BG_VIS[0]) begin
+//					THD = 3'd0; THD_PRI = BG_PRI[0];
+//				end
 				
 				     if (BG_PRI[1] >= FST_PRI && BG_VIS[1]) begin
+					FTH = THD;  FTH_PRI = THD_PRI;
 					THD = SEC;  THD_PRI = SEC_PRI;
 					SEC = FST;  SEC_PRI = FST_PRI;
 					FST = 3'd1; FST_PRI = BG_PRI[1];
 				end 
 				else if (BG_PRI[1] >= SEC_PRI && BG_VIS[1]) begin
+					FTH = THD;  FTH_PRI = THD_PRI;
 					THD = SEC;  THD_PRI = SEC_PRI;
 					SEC = 3'd1; SEC_PRI = BG_PRI[1];
 				end 
 				else if (BG_PRI[1] >= THD_PRI && BG_VIS[1]) begin
+					FTH = THD;  FTH_PRI = THD_PRI;
 					THD = 3'd1; THD_PRI = BG_PRI[1];
 				end
 				
 				     if (BG_PRI[2] >= FST_PRI && BG_VIS[2]) begin
+					FTH = THD;  FTH_PRI = THD_PRI;
 					THD = SEC;  THD_PRI = SEC_PRI;
 					SEC = FST;  SEC_PRI = FST_PRI;
 					FST = 3'd2; FST_PRI = BG_PRI[2];
 				end 
 				else if (BG_PRI[2] >= SEC_PRI && BG_VIS[2]) begin
+					FTH = THD;  FTH_PRI = THD_PRI;
 					THD = SEC;  THD_PRI = SEC_PRI;
 					SEC = 3'd2; SEC_PRI = BG_PRI[2];
 				end 
 				else if (BG_PRI[2] >= THD_PRI && BG_VIS[2]) begin
+					FTH = THD;  FTH_PRI = THD_PRI;
 					THD = 3'd2; THD_PRI = BG_PRI[2];
+				end
+				else if (BG_PRI[2] >= FTH_PRI && BG_VIS[2]) begin
+					FTH = 3'd2;  FTH_PRI = BG_PRI[2];
 				end
 				
 				     if (BG_PRI[3] >= FST_PRI && BG_VIS[3]) begin
+					FTH = THD;  FTH_PRI = THD_PRI;
 					THD = SEC;  THD_PRI = SEC_PRI;
 					SEC = FST;  SEC_PRI = FST_PRI;
 					FST = 3'd3; FST_PRI = BG_PRI[3];
 				end 
 				else if (BG_PRI[3] >= SEC_PRI && BG_VIS[3]) begin
+					FTH = THD;  FTH_PRI = THD_PRI;
 					THD = SEC;  THD_PRI = SEC_PRI;
 					SEC = 3'd3; SEC_PRI = BG_PRI[3];
 				end
+				else if (BG_PRI[3] >= THD_PRI && BG_VIS[3]) begin
+					FTH = THD;  FTH_PRI = THD_PRI;
+					THD = 3'd3; THD_PRI = BG_PRI[3];
+				end
+				else if (BG_PRI[3] >= FTH_PRI && BG_VIS[3]) begin
+					FTH = 3'd3;  FTH_PRI = BG_PRI[3];
+				end
 				
 				     if (POST_PRI >= FST_PRI && POST_VIS) begin
+					FTH = THD;  FTH_PRI = THD_PRI;
 					THD = SEC;  THD_PRI = SEC_PRI;
 					SEC = FST;  SEC_PRI = FST_PRI;
 					FST = 3'd5; FST_PRI = POST_PRI;
 				end
 				else if (POST_PRI >= SEC_PRI && POST_VIS) begin
+					FTH = THD;  FTH_PRI = THD_PRI;
 					THD = SEC;  THD_PRI = SEC_PRI;
 					SEC = 3'd5; SEC_PRI = POST_PRI;
 				end 
 				else if (POST_PRI >= THD_PRI && POST_VIS) begin
+					FTH = THD;  FTH_PRI = THD_PRI;
 					THD = 3'd5; THD_PRI = POST_PRI;
+				end
+				else if (POST_PRI >= FTH_PRI && POST_VIS) begin
+					FTH = 3'd5;  FTH_PRI = POST_PRI;
 				end
 			
 				DOT_FST <= FST;
 				DOT_SEC <= SEC;
 				DOT_THD <= THD;
+				DOT_FTH <= FTH;
 			end
 		end
 	end
 	
-	//Cycle4
 	bit  [11: 0] BG_COLOR;
 	always_comb begin
 		case (DOTCLK_DIV)
-			2'h0:    BG_COLOR <= DOT_THD <= 3'h3 ? {BG_OUT_PAL[DOT_THD[1:0]],4'h0} + {4'h0,BG_OUT_PIX[DOT_THD[1:0]]} : {SPR_OUT_PAL,4'h0} + {4'h0,SPR_OUT_PIX};
-			2'h1:    BG_COLOR <= DOT_SEC <= 3'h3 ? {BG_OUT_PAL[DOT_SEC[1:0]],4'h0} + {4'h0,BG_OUT_PIX[DOT_SEC[1:0]]} : {SPR_OUT_PAL,4'h0} + {4'h0,SPR_OUT_PIX};
+			2'h0:    BG_COLOR <= DOT_FTH <= 3'h3 ? {BG_OUT_PAL[DOT_FTH[1:0]],4'h0} + {4'h0,BG_OUT_PIX[DOT_FTH[1:0]]} : {SPR_OUT_PAL,4'h0} + {4'h0,SPR_OUT_PIX};
+			2'h1:    BG_COLOR <= DOT_THD <= 3'h3 ? {BG_OUT_PAL[DOT_THD[1:0]],4'h0} + {4'h0,BG_OUT_PIX[DOT_THD[1:0]]} : {SPR_OUT_PAL,4'h0} + {4'h0,SPR_OUT_PIX};
+			2'h2:    BG_COLOR <= DOT_SEC <= 3'h3 ? {BG_OUT_PAL[DOT_SEC[1:0]],4'h0} + {4'h0,BG_OUT_PIX[DOT_SEC[1:0]]} : {SPR_OUT_PAL,4'h0} + {4'h0,SPR_OUT_PIX};
 			default: BG_COLOR <= DOT_FST <= 3'h3 ? {BG_OUT_PAL[DOT_FST[1:0]],4'h0} + {4'h0,BG_OUT_PIX[DOT_FST[1:0]]} : {SPR_OUT_PAL,4'h0} + {4'h0,SPR_OUT_PIX};
 		endcase
 	end
 	
-	bit  [23: 0] OUT_RGB;
-	always @(posedge CLK or negedge RST_N) begin
 		bit  [23: 0] TOP_RGB;
 		bit  [ 7: 0] TOP_A;
+	bit  [23: 0] OUT_RGB;
+	always @(posedge CLK or negedge RST_N) begin
 		bit  [23: 0] BOT_RGB, TEMP_RGB;
 		bit  [ 2: 0] LAYER;
 		bit  [ 7: 0] PIX, ALPHA;
 		bit          POST;
 	
 		if (!RST_N) begin
-			TOP_RGB <= '0;
+//			TOP_RGB <= '0;
 			BOT_RGB <= '0;
 			OUT_RGB <= '0;
 		end else if (EN) begin
 			case (DOTCLK_DIV)
-				2'h0:    LAYER = DOT_THD;
-				2'h1:    LAYER = DOT_SEC;
+				2'h0:    LAYER = DOT_FTH;
+				2'h1:    LAYER = DOT_THD;
+				2'h2:    LAYER = DOT_SEC;
 				default: LAYER = DOT_FST;
 			endcase
 			PIX   = LAYER <= 3'h3 ? BG_OUT_PIX[LAYER[1:0]]          : LAYER == 3'h4 ? SPR_OUT_PIX   : 8'h00;
@@ -1157,20 +1189,20 @@ module PS6406B
 			POST  = LAYER == 3'h5;
 			
 			if (CE) begin
-				TOP_RGB <= LAYER <= 3'h4 ? RGB666Exp(PAL_Q) : LAYER == 3'h5 ? BG_POST_COLOR : BG_PRE_COLOR;
-				TOP_A <= POST ? (ALPHA[7] ? 8'h00 : ~{ALPHA[6:0],1'b0}) : !ALPHA[7] ? {ALPHA[5:0],ALPHA[5:4]} : PIX[7:6] == 2'b11 ? {PIX[5:0],PIX[5:4]} : 8'h00;
+				TOP_RGB = LAYER <= 3'h4 ? RGB666Exp(PAL_Q) : LAYER == 3'h5 ? BG_POST_COLOR : BG_PRE_COLOR;
+				TOP_A = POST ? (ALPHA[7] ? 8'h00 : ~{ALPHA[6:0],1'b0}) : !ALPHA[7] ? {ALPHA[5:0],ALPHA[5:4]} : PIX[7:6] == 2'b11 ? {PIX[5:0],PIX[5:4]} : 8'h00;
 				
 				if (TOP_A == 8'h00) begin
 					TEMP_RGB = TOP_RGB;
 				end
 				else if (TOP_A == 8'hFF) begin
-					TEMP_RGB = BOT_RGB;
+					TEMP_RGB = DOTCLK_DIV == 2'h0 ? BG_PRE_COLOR : BOT_RGB;
 				end
 				else begin
-					TEMP_RGB = RGBBlend(BOT_RGB, TOP_RGB, TOP_A);
+					TEMP_RGB = RGBBlend(DOTCLK_DIV == 2'h0 ? BG_PRE_COLOR : BOT_RGB, TOP_RGB, TOP_A);
 				end
 				case (DOTCLK_DIV)
-					2'h0: BOT_RGB <= BG_PRE_COLOR;
+					2'h0,
 					2'h1,
 					2'h2: BOT_RGB <= TEMP_RGB;
 					2'h3: OUT_RGB <= TEMP_RGB;
