@@ -177,7 +177,6 @@ module emu
 	assign USER_OUT = 'Z;
 
 	assign AUDIO_S = 1;
-	assign AUDIO_MIX = 0;
 	assign HDMI_FREEZE = 0;
 	assign VGA_DISABLE = 0;
 	
@@ -187,7 +186,6 @@ module emu
 	assign VGA_SCALER = 0;
 	assign HDMI_BLACKOUT = 1;
 	assign FB_FORCE_BLANK = 0;
-	
 
 	///////////////////////////////////////////////////
 	//
@@ -196,7 +194,7 @@ module emu
 	// 0         1         2         3          4         5         6   	   7         8         9
 	// 01234567890123456789012345678901 23456789012345678901234567890123 45678901234567890123456789012345
 	// 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
-	// XXXXXXXXX                        XXXXXX
+	// XXXXXXXXXX      XX               XXXXXX
 	
 	`include "build_id.v"
 	localparam CONF_STR = {
@@ -208,12 +206,17 @@ module emu
 		"O[32],Ver,0,1;",
 `endif
 		"-;",
-		
+		"O[16],Autosave NVRAM,Off,On;",
+		"T[17],Save NVRAM;",
+		"-;",
+	
 		"P1,Audio & Video;",
 		"P1O[2:1],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 		"P1O[4:3],Rotate,No,CCW,CW;",
 		"P1O[5],Flip 180,Off,On;",
 		"P1O[8:6],Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer,HV-Integer;",
+		"-;",
+		"P1O[9],Audio,Mono,Stereo;",
 		"-;",
 
 		"P2,Debug;",
@@ -224,7 +227,7 @@ module emu
 		"J1,B1,B2,B3,B4,Start,Coin,Test,Service;",
 		"V,v",`BUILD_DATE
 	};
-
+	
 	wire [127:0] status;
 	wire [ 15:0] menumask;
 	wire [  1:0] buttons;
@@ -292,7 +295,7 @@ module emu
 		.ioctl_index(ioctl_index),
 		.ioctl_upload(ioctl_upload),
 		.ioctl_upload_req(ioctl_upload_req),
-		.ioctl_upload_index(8'h04),
+		.ioctl_upload_index(8'h03),
 		.ioctl_addr(ioctl_addr),
 		.ioctl_dout(ioctl_data),
 		.ioctl_din(ioctl_din),
@@ -328,9 +331,9 @@ module emu
 	
 	wire cart_download = ioctl_download & (ioctl_index[5:2] == 4'b0000 && ioctl_index[1:0] == 2'h0);
 	wire bios_download = ioctl_download & (ioctl_index[5:2] == 4'b0000 && ioctl_index[1:0] == 2'h1);
-	wire eep_download = ioctl_download & (ioctl_index[5:2] == 4'b0000 && ioctl_index[1:0] == 2'h2);
-	wire save_download = ioctl_download & (ioctl_index[5:2] == 4'b0001);
-	wire save_upload = ioctl_upload & (ioctl_index[5:2] == 4'b0001);
+	wire conf_download = ioctl_download & (ioctl_index[5:2] == 4'b0000 && ioctl_index[1:0] == 2'h2);
+	wire nvram_download = ioctl_download & (ioctl_index[5:2] == 4'b0000 && ioctl_index[1:0] == 2'h3);
+	wire nvram_upload = ioctl_upload & (ioctl_index[5:2] == 4'b0000 && ioctl_index[1:0] == 2'h3);
 	
 	reg osd_btn = 0;
 
@@ -366,9 +369,9 @@ module emu
 	//[1:0] - ver: 0-PS3,1-PS5
 	//[2] - debug mode
 	//[5:4] - input mode: 1,2,3,4 buttons
-	reg  [7:0] BOARD_CONF = 8'h05;
+	reg  [7:0] BOARD_CONF = 8'h00;
 	always @(posedge clk_sys) begin
-		if (eep_download && ioctl_wr && ioctl_addr[8:0] == 9'h100) begin
+		if (conf_download && ioctl_wr && ioctl_addr[8:0] == 9'h000) begin
 			BOARD_CONF <= ioctl_data[7:0];
 		end
 	end
@@ -421,10 +424,10 @@ module emu
 	wire [ 7: 0] SOUND_ROM_D;
 	wire         SOUND_ROM_RD_N;
 	
-	wire [ 6: 0] EEP_MEM_A;
-	wire [15: 0] EEP_MEM_DI;
+	wire [ 7: 0] EEP_MEM_A;
+	wire [ 7: 0] EEP_MEM_Q;
 	wire         EEP_MEM_WREN;
-	wire [15: 0] EEP_MEM_DO;
+	wire [ 7: 0] EEP_MEM_DATA;
 	
 	wire [ 7: 0] R, G, B;
 	wire         HS_N,VS_N;
@@ -435,7 +438,7 @@ module emu
 	wire [15: 0] SOUND_L;
 	wire [15: 0] SOUND_R;
 	
-	PSH2 #("") psh2
+	PSH2 psh2
 	(
 		.CLK(clk_sys),
 		.RST_N(~rst_sys),
@@ -468,10 +471,10 @@ module emu
 		.SOUND_ROM_D(SOUND_ROM_D),
 		.SOUND_ROM_RD_N(SOUND_ROM_RD_N),
 		
-		.EEP_MEM_A(ioctl_addr[7:1]),
-		.EEP_MEM_DI(ioctl_data),
-		.EEP_MEM_WREN(eep_download & ~ioctl_addr[8] & ioctl_wr),
-		.EEP_MEM_DO(EEP_MEM_DO),
+		.EEP_MEM_A(EEP_MEM_A),
+		.EEP_MEM_Q(EEP_MEM_Q),
+		.EEP_MEM_WREN(EEP_MEM_WREN),
+		.EEP_MEM_DATA(EEP_MEM_DATA),
 		
 		.R(R),
 		.G(G),
@@ -547,25 +550,35 @@ module emu
 
 	//Prog/Data ROM, DRAM
 	reg  [ 3: 0] loader_state = 0;
-	reg  [25: 3] ddr_rom_addr;
+	reg  [26: 3] ddr_rom_addr;
 	reg  [63: 0] ddr_rom_do;
 	reg          ddr_rom_rd;
 	wire         ddr_rom_busy;
 	reg  [25: 3] sdr_rom_addr;
 	reg  [63: 0] sdr_rom_data;
 	reg          sdr_rom_wr;
+	reg  [ 7: 1] eeprom_addr;
+	reg  [15: 0] eeprom_data;
+	reg          eeprom_wr;
 	always @(posedge clk_sys) begin		
+		reg nvram_load_ckip = 0;
+		
 		ioctl_wait <= (bios_download && bios_busy);
 		
-		if (eep_download || status[0]) begin
+		if (conf_download || status[0]) begin
 			ddr_rom_addr <= '0;
 			ddr_rom_rd <= 0;
+			sdr_rom_addr <= '0;
+			sdr_rom_wr <= 0;
+			eeprom_addr <= '0;
+			eeprom_wr <= 0;
 			loader_state = 4'd1;
 			loader_rst <= 1;
 		end
 		else if (sdr_rdy) begin
 			ddr_rom_rd <= 0;
 			sdr_rom_wr <= 0;
+			eeprom_wr <= 0;
 			case (loader_state)
 				4'd0: ;
 				
@@ -588,16 +601,69 @@ module emu
 				
 				4'd9: begin
 					sdr_rom_addr <= sdr_rom_addr + 1'd1;
-					if (ddr_rom_addr == 0) begin
-						loader_state = 4'd0; 
-						loader_rst <= 0;
+					if (ddr_rom_addr[26]) begin
+						if (nvram_load_ckip) begin
+							loader_state = 4'd0; 
+							loader_rst <= 0;
+						end else begin
+							loader_state = 4'd10; 
+						end
 					end
 					else  begin
 						loader_state = 4'd2;
 					end
 				end
+				
+				4'd10: if (!ddr_rom_busy) begin
+					ddr_rom_addr <= 27'h4200000>>3;
+					ddr_rom_rd <= 1;
+					loader_state = 4'd11;
+				end
+				
+				4'd11: if (!ddr_rom_busy) begin
+					eeprom_data <= ddr_rom_do[63:48];
+					eeprom_wr <= 1;
+					loader_state = 4'd12;
+				end
+				
+				4'd12: begin
+					eeprom_addr <= eeprom_addr + 1'd1;
+					eeprom_data <= ddr_rom_do[47:32];
+					eeprom_wr <= 1;
+					loader_state = 4'd13;
+				end
+				
+				4'd13: begin
+					eeprom_addr <= eeprom_addr + 1'd1;
+					eeprom_data <= ddr_rom_do[31:16];
+					eeprom_wr <= 1;
+					loader_state = 4'd14;
+				end
+				
+				4'd14: begin
+					eeprom_addr <= eeprom_addr + 1'd1;
+					eeprom_data <= ddr_rom_do[15:0];
+					eeprom_wr <= 1;
+					ddr_rom_addr <= ddr_rom_addr + 1'd1;
+					ddr_rom_rd <= 1;
+					loader_state = 4'd15;
+				end
+				
+				4'd15: begin
+					eeprom_addr <= eeprom_addr + 1'd1;
+					if (ddr_rom_addr[6:3] == 4'h0) begin
+						loader_state = 4'd0; 
+						loader_rst <= 0;
+					end
+					else  begin
+						loader_state = 4'd11;
+					end
+				end
 			endcase
+			
 		end
+		
+		if (nvram_download & ioctl_wr) nvram_load_ckip <= 1;
 	end
 	
 	wire [15:0] drom_do;
@@ -635,7 +701,7 @@ module emu
 		.bios_wr  ({2{bios_download & ioctl_wr}}),
 		.bios_busy(bios_busy),
 	
-		//GFX/Sound ROM loader
+		//GFX/Sound ROM,EEPROM loader
 		.rom_addr(ddr_rom_addr),
 		.rom_rd  (ddr_rom_rd),
 		.rom_dout(ddr_rom_do),
@@ -652,6 +718,39 @@ module emu
 	assign ROM_D = !PROM_CE_N ? prom_do : {16'h0000,drom_do};
 	assign MEM_WAIT_N = !DRAM_CE_N ? ~dram_busy : 
 							  !PROM_CE_N ? ~prom_busy : ~drom_busy;
+	
+	//NVRAM
+	wire [15: 0] eeprom_q;
+	dpram_dif #(8,8,7,16,"rtl/eeprom.mif") eeprom
+	(
+		.clock(clk_sys),
+
+		.address_a(EEP_MEM_A),
+		.data_a(EEP_MEM_DATA),
+		.wren_a(EEP_MEM_WREN),
+		.q_a(EEP_MEM_Q),
+
+		.address_b(nvram_download || nvram_upload ? ioctl_addr[7:1] : eeprom_addr),
+		.data_b(nvram_download || nvram_upload ? ioctl_data : eeprom_data),
+		.wren_b(nvram_download || nvram_upload ? ioctl_wr : eeprom_wr),
+		.q_b(eeprom_q)
+	);
+	
+	reg nvram_save_req;	
+	always @(posedge clk_sys) begin
+		if (reset) begin
+			nvram_save_req <= 0;
+		end else begin
+			if (nvram_upload) begin
+				nvram_save_req <= 0;
+			end else if (EEP_MEM_WREN) begin
+				nvram_save_req <= 1;
+			end
+		end
+	end
+
+	assign ioctl_upload_req = (status[16] && nvram_save_req) || status[17];
+	assign ioctl_din = (ioctl_index == 8'h03) ? eeprom_q : '0;
 
 /////////////////////////  Video  /////////////////////////////	
 	assign VGA_F1 = 0;
@@ -761,6 +860,8 @@ module emu
 //		.HBlank(~HBL_N),
 //		.VBlank(~VBL_N) 
 //	);
+
+	assign AUDIO_MIX = !status[9] ? 2'b11 : 2'b00;
 	
 	//debug
 	reg  [ 5: 0] SCRN_EN = 6'b111111;
