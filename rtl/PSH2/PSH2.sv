@@ -1,5 +1,4 @@
 module PSH2 
-#(parameter eep_init_file = " ")
 (
 	input              CLK,
 	input              RST_N,
@@ -32,10 +31,10 @@ module PSH2
 	input      [ 7: 0] SOUND_ROM_D,
 	output             SOUND_ROM_RD_N,
 	
-	input      [ 6: 0] EEP_MEM_A,
-	input      [15: 0] EEP_MEM_DI,
-	input              EEP_MEM_WREN,
-	output     [15: 0] EEP_MEM_DO,
+	output     [ 7: 0] EEP_MEM_A,
+	input      [ 7: 0] EEP_MEM_Q,
+	output             EEP_MEM_WREN,
+	output     [ 7: 0] EEP_MEM_DATA,
 	
 	output     [ 7: 0] R,
 	output     [ 7: 0] G,
@@ -337,7 +336,7 @@ module PSH2
 		endcase
 	end
 	
-	E93C56A #(eep_init_file) EEP
+	E93C56A EEP
 	(
 		.CLK(CLK),
 		.RST_N(RST_N),
@@ -348,9 +347,9 @@ module PSH2
 		.SK(EEP_CLK),
 		
 		.MEM_A(EEP_MEM_A),
-		.MEM_DI(EEP_MEM_DI),
+		.MEM_Q(EEP_MEM_Q),
 		.MEM_WREN(EEP_MEM_WREN),
-		.MEM_DO(EEP_MEM_DO)
+		.MEM_DATA(EEP_MEM_DATA)
 	);
 	
 `ifdef DEBUG

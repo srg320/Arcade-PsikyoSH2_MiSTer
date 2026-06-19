@@ -1,5 +1,4 @@
 module E93C56A
-#(parameter init_file = " ")
 (
 	input              CLK,
 	input              RST_N,
@@ -9,10 +8,10 @@ module E93C56A
 	input              CS,
 	input              SK,
 	
-	input      [ 6: 0] MEM_A,
-	input      [15: 0] MEM_DI,
-	input              MEM_WREN,
-	output     [15: 0] MEM_DO
+	output     [ 7: 0] MEM_A,
+	input      [ 7: 0] MEM_Q,
+	output             MEM_WREN,
+	output     [ 7: 0] MEM_DATA
 );
 
 	bit          SK_OLD,CS_OLD;
@@ -100,8 +99,8 @@ module E93C56A
 				3'd4: begin	//read/ewen/ewds
 					case (OPCODE)
 						2'b00: begin
-							if (ADDRESS[5:4] == 2'b11) WEN <= 1;
-							if (ADDRESS[5:4] == 2'b00) WEN <= 0;
+							if (ADDRESS[8:7] == 2'b11) WEN <= 1;
+							if (ADDRESS[8:7] == 2'b00) WEN <= 0;
 							//if (ADDRESS[5:4] == 2'b01) WEN <= 1;
 							STATE <= 3'd7;
 						end 
@@ -118,7 +117,7 @@ module E93C56A
 				end
 				
 				3'd5: begin	//read to buf
-					DATA <= EEPROM_Q;
+					DATA <= MEM_Q;
 					STATE <= 3'd6;
 				end
 				
@@ -128,7 +127,7 @@ module E93C56A
 						BIT_CNT <= BIT_CNT + 4'd1;
 						if (BIT_CNT == 4'd7) begin 
 							if (OPCODE == 2'b10) begin
-								ADDRESS <= ADDRESS + 6'd1;
+								ADDRESS <= ADDRESS + 9'd1;
 								STATE <= 3'd4; 
 							end else begin
 								STATE <= 3'd7; 
@@ -153,22 +152,8 @@ module E93C56A
 			endcase
 		end
 	end
-	
-	bit  [7: 0] EEPROM_Q;
-	dpram_dif #(8,8,7,16,init_file) eeprom
-	(
-		.clock(CLK),
-
-		.address_a(ADDRESS[7:0]),
-		.data_a(DATA),
-		.wren_a(WRITE),
-		.q_a(EEPROM_Q),
-
-		.address_b(MEM_A),
-		.data_b(MEM_DI),
-		.wren_b(MEM_WREN),
-		.q_b(MEM_DO)
-	);
-
+	assign MEM_A = ADDRESS[7:0];
+	assign MEM_DATA = DATA;
+	assign MEM_WREN = WRITE;
 
 endmodule
