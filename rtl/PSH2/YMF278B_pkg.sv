@@ -29,12 +29,11 @@ package YMF278B_PKG;
 		bit         LOAD;
 		bit [ 3: 0] LOAD_POS;
 		bit         ALLOW;
-		bit         LOOP;	//Loop processing 
 		bit [13: 0] PHASE_FRAC;//Phase fractional
 		bit [15: 0] SO;	//Sample offset
 		bit [21: 0] MOD;	//Modulation
 	} OP3_t;
-	parameter OP3_t OP3_RESET = '{5'h00,1'b0,1'b0,1'b0,1'b0,4'h0,1'b0,1'b0,14'h0000,16'h0000,22'h000000};
+	parameter OP3_t OP3_RESET = '{5'h00,1'b0,1'b0,1'b0,1'b0,4'h0,1'b0,14'h0000,16'h0000,22'h000000};
 	
 	typedef struct packed
 	{
@@ -42,10 +41,9 @@ package YMF278B_PKG;
 		bit         RST;	//
 		bit         KON;	//
 		bit         KOFF;	//
-		bit         LOOP;//Loop processing 
 		bit [ 5: 0] MODF;	//Modulation fractional
 	} OP4_t;
-	parameter OP4_t OP4_RESET = '{5'h00,1'b0,1'b0,1'b0,1'b0,6'h00};
+	parameter OP4_t OP4_RESET = '{5'h00,1'b0,1'b0,1'b0,6'h00};
 	
 	typedef struct packed
 	{
@@ -138,48 +136,147 @@ package YMF278B_PKG;
 		return SUM[21:6];
 	endfunction
 		
-	function bit [5:0] EffRateCalc(bit [4:0] RATE, bit [3:0] KRS, bit [3:0] OCT);
-		bit [4:0] RES;
+	function bit [6:0] EffRateCalc(bit [3:0] RATE, bit [3:0] RC, bit [3:0] OCT, bit FNUM9);
+		bit [5:0] RES;
 		bit [5:0] TEMP;
-		bit [3:0] KEY_EG_SCALE;
-		bit [5:0] TEMP2;
-		bit [4:0] RATE_SCALE,RATE_SCALE2;
+		bit [6:0] KEY_EG_SCALE;
+		bit [6:0] TEMP2;
 		
-		TEMP = {2'b00,KRS} + {OCT[3],OCT[3],OCT};
-		if (KRS == 4'hF) 
+		TEMP = {2'b00,RC} + {OCT[3],OCT[3],OCT};
+		if (RC == 4'hF) 
 			KEY_EG_SCALE = '0;
 		else
-			KEY_EG_SCALE = TEMP[5] ? 4'h0 : TEMP[4] ? 4'hF : TEMP[3:0];
+			KEY_EG_SCALE = {TEMP,FNUM9};
 		
-		TEMP2 = {1'b0,RATE} + {2'b00,KEY_EG_SCALE};
-		RES = TEMP2[5] ? 5'h1F : TEMP2[4:0];
+		if (RATE == 4'h0)
+			TEMP2 = 7'h00;
+		else if (RATE == 4'hF)
+			TEMP2 = 7'h3F;
+		else
+			TEMP2 = {1'b0,RATE,2'b00} + KEY_EG_SCALE;
 			
-		return {TEMP2[5],RES};
+		RES = TEMP2[6] ? 6'h3F : TEMP2[5:0];
+			
+		return {TEMP2[6],RES};
 	endfunction
 	
-	function bit [3:0] EffRateBit(bit [4:0] ERATE);
-		bit [4:0] TEMP;
+	function bit EnvStep(bit [17:0] CNT, bit [5:0] ERATE);
+		bit RET;
 
-		TEMP = 5'h18 - (ERATE > 5'h18 ? 5'h18 : ERATE[4:0]);
+		case (ERATE[5:2])
+			4'h0: RET = ~|CNT[10:0];
+			4'h1: RET = ~|CNT[9:0];
+			4'h2: RET = ~|CNT[8:0];
+			4'h3: RET = ~|CNT[7:0];
+			4'h4: RET = ~|CNT[6:0];
+			4'h5: RET = ~|CNT[5:0];
+			4'h6: RET = ~|CNT[4:0];
+			4'h7: RET = ~|CNT[3:0];
+			4'h8: RET = ~|CNT[2:0];
+			4'h9: RET = ~|CNT[1:0];
+			4'hA: RET = ~|CNT[0:0];
+			default: RET = 1;
+		endcase
 			
-		return TEMP[4:1];
+		return RET;
 	endfunction
 	
-	function bit [9:0] LevelAddALFO(bit [9:0] LEVEL, bit [7:0] ALFO);
+	parameter bit [3:0] EncIncTbl[64*8] = 
+	'{ 4'h0,4'h0,4'h0,4'h0,4'h0,4'h0,4'h0,4'h0,
+      4'h0,4'h0,4'h0,4'h0,4'h0,4'h0,4'h0,4'h0,
+      4'h0,4'h1,4'h0,4'h1,4'h0,4'h1,4'h0,4'h1,
+      4'h0,4'h1,4'h0,4'h1,4'h0,4'h1,4'h0,4'h1,
+      4'h0,4'h1,4'h0,4'h1,4'h0,4'h1,4'h0,4'h1,//04
+      4'h0,4'h1,4'h0,4'h1,4'h0,4'h1,4'h0,4'h1,
+      4'h0,4'h1,4'h1,4'h1,4'h0,4'h1,4'h1,4'h1,
+      4'h0,4'h1,4'h1,4'h1,4'h0,4'h1,4'h1,4'h1,
+      4'h0,4'h1,4'h0,4'h1,4'h0,4'h1,4'h0,4'h1,//08
+      4'h0,4'h1,4'h0,4'h1,4'h1,4'h1,4'h0,4'h1,
+      4'h0,4'h1,4'h1,4'h1,4'h0,4'h1,4'h1,4'h1,
+      4'h0,4'h1,4'h1,4'h1,4'h1,4'h1,4'h1,4'h1,
+      4'h0,4'h1,4'h0,4'h1,4'h0,4'h1,4'h0,4'h1,//0C
+      4'h0,4'h1,4'h0,4'h1,4'h1,4'h1,4'h0,4'h1,
+      4'h0,4'h1,4'h1,4'h1,4'h0,4'h1,4'h1,4'h1,
+      4'h0,4'h1,4'h1,4'h1,4'h1,4'h1,4'h1,4'h1,
+      4'h0,4'h1,4'h0,4'h1,4'h0,4'h1,4'h0,4'h1,//10
+      4'h0,4'h1,4'h0,4'h1,4'h1,4'h1,4'h0,4'h1,
+      4'h0,4'h1,4'h1,4'h1,4'h0,4'h1,4'h1,4'h1,
+      4'h0,4'h1,4'h1,4'h1,4'h1,4'h1,4'h1,4'h1,
+      4'h0,4'h1,4'h0,4'h1,4'h0,4'h1,4'h0,4'h1,//14
+      4'h0,4'h1,4'h0,4'h1,4'h1,4'h1,4'h0,4'h1,
+      4'h0,4'h1,4'h1,4'h1,4'h0,4'h1,4'h1,4'h1,
+      4'h0,4'h1,4'h1,4'h1,4'h1,4'h1,4'h1,4'h1,
+      4'h0,4'h1,4'h0,4'h1,4'h0,4'h1,4'h0,4'h1,//18
+      4'h0,4'h1,4'h0,4'h1,4'h1,4'h1,4'h0,4'h1,
+      4'h0,4'h1,4'h1,4'h1,4'h0,4'h1,4'h1,4'h1,
+      4'h0,4'h1,4'h1,4'h1,4'h1,4'h1,4'h1,4'h1,
+      4'h0,4'h1,4'h0,4'h1,4'h0,4'h1,4'h0,4'h1,//1C
+      4'h0,4'h1,4'h0,4'h1,4'h1,4'h1,4'h0,4'h1,
+      4'h0,4'h1,4'h1,4'h1,4'h0,4'h1,4'h1,4'h1,
+      4'h0,4'h1,4'h1,4'h1,4'h1,4'h1,4'h1,4'h1,
+      4'h0,4'h1,4'h0,4'h1,4'h0,4'h1,4'h0,4'h1,//20
+      4'h0,4'h1,4'h0,4'h1,4'h1,4'h1,4'h0,4'h1,
+      4'h0,4'h1,4'h1,4'h1,4'h0,4'h1,4'h1,4'h1,
+      4'h0,4'h1,4'h1,4'h1,4'h1,4'h1,4'h1,4'h1,
+      4'h0,4'h1,4'h0,4'h1,4'h0,4'h1,4'h0,4'h1,//24
+      4'h0,4'h1,4'h0,4'h1,4'h1,4'h1,4'h0,4'h1,
+      4'h0,4'h1,4'h1,4'h1,4'h0,4'h1,4'h1,4'h1,
+      4'h0,4'h1,4'h1,4'h1,4'h1,4'h1,4'h1,4'h1,
+      4'h0,4'h1,4'h0,4'h1,4'h0,4'h1,4'h0,4'h1,//28
+      4'h0,4'h1,4'h0,4'h1,4'h1,4'h1,4'h0,4'h1,
+      4'h0,4'h1,4'h1,4'h1,4'h0,4'h1,4'h1,4'h1,
+      4'h0,4'h1,4'h1,4'h1,4'h1,4'h1,4'h1,4'h1,
+      4'h0,4'h1,4'h0,4'h1,4'h0,4'h1,4'h0,4'h1,//2C
+      4'h0,4'h1,4'h0,4'h1,4'h1,4'h1,4'h0,4'h1,
+      4'h0,4'h1,4'h1,4'h1,4'h0,4'h1,4'h1,4'h1,
+      4'h0,4'h1,4'h1,4'h1,4'h1,4'h1,4'h1,4'h1,
+      4'h1,4'h1,4'h1,4'h1,4'h1,4'h1,4'h1,4'h1,//30
+      4'h1,4'h1,4'h1,4'h2,4'h1,4'h1,4'h1,4'h2,
+      4'h1,4'h2,4'h1,4'h2,4'h1,4'h2,4'h1,4'h2,
+      4'h1,4'h2,4'h2,4'h2,4'h1,4'h2,4'h2,4'h2,
+      4'h2,4'h2,4'h2,4'h2,4'h2,4'h2,4'h2,4'h2,//34
+      4'h2,4'h2,4'h2,4'h4,4'h2,4'h2,4'h2,4'h4,
+      4'h2,4'h4,4'h2,4'h4,4'h2,4'h4,4'h2,4'h4,
+      4'h2,4'h4,4'h4,4'h4,4'h2,4'h4,4'h4,4'h4,
+      4'h4,4'h4,4'h4,4'h4,4'h4,4'h4,4'h4,4'h4,//38
+      4'h4,4'h4,4'h4,4'h8,4'h4,4'h4,4'h4,4'h8,
+      4'h4,4'h8,4'h4,4'h8,4'h4,4'h8,4'h4,4'h8,
+      4'h4,4'h8,4'h8,4'h8,4'h4,4'h8,4'h8,4'h8,
+      4'h8,4'h8,4'h8,4'h8,4'h8,4'h8,4'h8,4'h8,//3C
+      4'h8,4'h8,4'h8,4'h8,4'h8,4'h8,4'h8,4'h8,
+      4'h8,4'h8,4'h8,4'h8,4'h8,4'h8,4'h8,4'h8,
+      4'h8,4'h8,4'h8,4'h8,4'h8,4'h8,4'h8,4'h8
+	};
+	
+	function bit [3:0] EnvInc(bit [17:0] CNT, bit [5:0] ERATE);
+		bit [2:0] IDX;
+
+		case (ERATE[5:2])
+			4'hC: IDX = CNT[14:12];
+			4'hD: IDX = CNT[15:13];
+			4'hE: IDX = CNT[16:14];
+			4'hF: IDX = CNT[17:15];
+			default: IDX = CNT[13:11];
+		endcase
+			
+		return EncIncTbl[{ERATE,IDX}];
+	endfunction
+	
+	function bit [9:0] LevelAddTLALFO(bit [9:0] LEVEL, bit [9:0] TL, bit [7:0] ALFO);
 		bit [10:0] SUM;
 		
-		SUM = {1'b0,LEVEL} + {3'b000,ALFO};
+		SUM = {1'b0,LEVEL} + {1'b0,TL} + {3'b000,ALFO};
 		
 		return !SUM[10] ? SUM[9:0] : 10'h3FF;
 	endfunction
 	
-	function bit [9:0] LevelAddTL(bit [9:0] LEVEL, bit [6:0] TL);
-		bit [10:0] SUM;
-		
-		SUM = {1'b0,LEVEL} + {1'b0,TL,3'b000};
-		
-		return !SUM[10] ? SUM[9:0] : 10'h3FF;
-	endfunction
+//	function bit [9:0] LevelAddTL(bit [9:0] LEVEL, bit [6:0] TL);
+//		bit [10:0] SUM;
+//		
+//		SUM = {1'b0,LEVEL} + {1'b0,TL,3'b000};
+//		
+//		return !SUM[10] ? SUM[9:0] : 10'h3FF;
+//	endfunction
 
 	function bit signed [15:0] VolCalc(bit signed [15:0] WAVE, bit [9:0] LEVEL);
 		bit [22:0] MULT;
@@ -192,17 +289,21 @@ package YMF278B_PKG;
 	endfunction
 	
 	function bit signed [15:0] PanLCalc(bit signed [15:0] WAVE, bit [3:0] PAN);
+		bit [3:0] S;
 		bit [15:0] TEMP;
 		
-		TEMP = $signed($signed(WAVE)>>>{PAN[2:0],1'b0});
-		return !PAN[3] ? $signed(TEMP) : WAVE;
+		S = 4'd0 + PAN;
+		TEMP = $signed($signed(WAVE)>>>{S[2:0],1'b0});
+		return PAN == 4'h8 ? 16'h0000 : PAN[3] ? $signed(TEMP) : WAVE;
 	endfunction
 	
 	function bit signed [15:0] PanRCalc(bit signed [15:0] WAVE, bit [3:0] PAN);
+		bit [3:0] S;
 		bit [15:0] TEMP;
 		
-		TEMP = $signed($signed(WAVE)>>>{PAN[2:0],1'b0});
-		return  PAN[3] ? $signed(TEMP) : WAVE;
+		S = 4'd0 - PAN;
+		TEMP = $signed($signed(WAVE)>>>{S[2:0],1'b0});
+		return PAN == 4'h8 ? 16'h0000 : !PAN[3] ? $signed(TEMP) : WAVE;
 	endfunction
 	
 	function bit signed [15:0] MixCalc(bit signed [15:0] WAVE, bit [2:0] MIX);
