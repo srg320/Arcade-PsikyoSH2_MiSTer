@@ -107,10 +107,6 @@ package PS6406B_PKG;
 	} BG_t;
 	parameter BG_t BG_INIT = '{32'h00000000,32'h00000000,'{32'h00000000,32'h00000000}};
 	
-	function bit [23:0] RGB666Exp(input bit [17:0] rgb666);
-		return {rgb666[17:12],rgb666[17:16],rgb666[11:6],rgb666[11:10],rgb666[5:0],rgb666[5:4]};
-	endfunction
-	
 	function bit [7:0] ColorBlend(input bit [7:0] CA, input bit [7:0] CB, input bit [7:0] RA, input bit [7:0] RB);
 		bit [15:0] S;
 		

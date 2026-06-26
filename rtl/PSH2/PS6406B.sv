@@ -71,6 +71,7 @@ module PS6406B
 	
 	bit          DOT_CE_R,DOT_CE_F;
 	bit          RENDER_SRAM_CYCLE;
+	bit          RENDER_ROM_CYCLE;
 	bit          BG_FETCH_EN;
 	bit  [24: 0] ROM_ADDR;
 	
@@ -79,6 +80,7 @@ module PS6406B
 	wire         IO_SPRRAM_SEL = (A >= (19'h00000>>1) && A <= (19'h0FFFF>>1) && !CS_N);
 	wire         PALETTE_SEL = (A >= (19'h40000>>1) && A <= (19'h43FFF>>1) && !CS_N);
 	wire         ZOOMRAM_SEL = (A >= (19'h50000>>1) && A <= (19'h501FF>>1) && !CS_N);
+	wire         IO_GFX_SEL = (A >= (19'h60000>>1) && A <= (19'h7FFFF>>1) && !CS_N);
 	
 	bit          WE_N_OLD;
 	always @(posedge CLK or negedge RST_N) begin
@@ -115,10 +117,11 @@ module PS6406B
 	assign DO = IACK_SEL ? IACK : 
 	            REG_SEL ? (!A[1] ? REGS[A[4:2]][31:16] : REGS[A[4:2]][15:0]) : 
 					IO_SPRRAM_SEL ? IO_SRAM_DO : 
-	            PALETTE_SEL ? (!A[1] ? {PAL_Q[17:12],2'b00,PAL_Q[11: 6],2'b00} : {PAL_Q[ 5: 0],2'b00,8'h00}) : 
+	            PALETTE_SEL ? (!A[1] ? PAL_Q[23:8] : {PAL_Q[7:0],8'h00}) : 
 					ZOOMRAM_SEL ? IO_ZOOM_RAM_Q : 
+					IO_GFX_SEL ? IO_ROM_DO : 
 					'0;
-	assign WAIT_N = ~(IO_SPRRAM_SEL & IO_SPRRAM_WAIT);
+	assign WAIT_N = ~(IO_SPRRAM_SEL & IO_SPRRAM_WAIT) & ~(IO_GFX_SEL & IO_ROM_WAIT);
 	
 	assign IRQ_N = ~VINT_REQ;
 	
@@ -156,14 +159,14 @@ module PS6406B
 	assign SRAM_CE_N = ~(RENDER_SRAM_CYCLE | IO_SPRRAM_CYCLE);
 	
 	//Palette
-	wire [11: 0] PALR_RA = PALETTE_SEL ? A[13:2] : BG_COLOR;
-	wire [11: 0] PALG_RA = PALETTE_SEL ? A[13:2] : BG_COLOR;
-	wire [11: 0] PALB_RA = PALETTE_SEL ? A[13:2] : BG_COLOR;
+	wire [11: 0] PALR_RA = PALETTE_SEL && !RD_N ? A[13:2] : BG_COLOR;
+	wire [11: 0] PALG_RA = PALETTE_SEL && !RD_N ? A[13:2] : BG_COLOR;
+	wire [11: 0] PALB_RA = PALETTE_SEL && !RD_N ? A[13:2] : BG_COLOR;
 	wire         PAL_WE = PALETTE_SEL & ~(&WE_N) & WE_N_OLD;
-	bit  [17: 0] PAL_Q;
-	PSH2_PAL_RAM PALR(CLK, A[13:2], DI[15:10], PAL_WE & ~A[1] & ~WE_N[1] & CE, PALR_RA, PAL_Q[17:12]);
-	PSH2_PAL_RAM PALG(CLK, A[13:2], DI[ 7: 2], PAL_WE & ~A[1] & ~WE_N[0] & CE, PALG_RA, PAL_Q[11: 6]);
-	PSH2_PAL_RAM PALB(CLK, A[13:2], DI[15:10], PAL_WE &  A[1] & ~WE_N[1] & CE, PALB_RA, PAL_Q[ 5: 0]);
+	bit  [23: 0] PAL_Q;
+	PSH2_PAL_RAM PALR(CLK, A[13:2], DI[15: 8], PAL_WE & ~A[1] & ~WE_N[1] & CE, PALR_RA, PAL_Q[23:16]);
+	PSH2_PAL_RAM PALG(CLK, A[13:2], DI[ 7: 0], PAL_WE & ~A[1] & ~WE_N[0] & CE, PALG_RA, PAL_Q[15: 8]);
+	PSH2_PAL_RAM PALB(CLK, A[13:2], DI[15: 8], PAL_WE &  A[1] & ~WE_N[1] & CE, PALB_RA, PAL_Q[ 7: 0]);
 	
 	//Zoom RAM
 	bit  [ 7: 0] SPR_EVAL_ZOOMX,SPR_EVAL_ZOOMY;
@@ -177,12 +180,38 @@ module PS6406B
 	PSH2_ZOOM_RAM ZOOM_RAM_Y (CLK, A[8:1], DI, ZOOM_RAM_WE & CE, ZOOM_RAM_Y_RA, ZOOM_RAM_Y_Q);
 	
 	//ROM
-	assign ROM_A = ROM_ADDR[21:0];
-	assign ROM_CE_N = !ROM_ADDR[24] ? (!ROM_ADDR[23] ? (!ROM_ADDR[22] ? 6'b111110 : 6'b111101) : 
-	                                                   (!ROM_ADDR[22] ? 6'b111011 : 6'b110111)) : 
-												 (!ROM_ADDR[23] ? (!ROM_ADDR[22] ? 6'b101111 : 6'b011111) : 
-	                                                   (!ROM_ADDR[22] ? 6'b111111 : 6'b111111));
-	assign ROM_OE_N = 1'b0;
+	bit  [15: 0] IO_ROM_DO;
+	bit          IO_ROM_WAIT;
+	bit          IO_ROM_CYCLE;
+	always @(posedge CLK or negedge RST_N) begin
+		bit          IO_GFX_SEL_OLD;
+		
+		if (!RST_N) begin
+			IO_ROM_WAIT <= 0;
+			IO_ROM_CYCLE <= 0;
+		end else if (EN) begin
+			IO_GFX_SEL_OLD <= IO_GFX_SEL;
+			if (IO_GFX_SEL && !IO_GFX_SEL_OLD) begin
+				IO_ROM_WAIT <= 1;
+			end
+			if (DOT_CE_R) begin
+				IO_ROM_CYCLE <= IO_ROM_WAIT;
+				if (IO_ROM_CYCLE && !RENDER_ROM_CYCLE) begin
+					IO_ROM_DO <= A[1] ? {ROM_D[23:16],ROM_D[31:24]} : {ROM_D[7:0],ROM_D[15:8]};
+					IO_ROM_CYCLE <= 0;
+					IO_ROM_WAIT <= 0;
+				end
+			end
+		end
+	end
+	
+	wire [24:0] TEMP_ROM_A = RENDER_ROM_CYCLE ? ROM_ADDR[24:0] : {REGS[4][9:0],A[16:2]};
+	assign ROM_A = TEMP_ROM_A[21:0];
+	assign ROM_CE_N = !TEMP_ROM_A[24] ? (!TEMP_ROM_A[23] ? (!TEMP_ROM_A[22] ? 6'b111110 : 6'b111101) : 
+	                                                       (!TEMP_ROM_A[22] ? 6'b111011 : 6'b110111)) : 
+												   (!TEMP_ROM_A[23] ? (!TEMP_ROM_A[22] ? 6'b101111 : 6'b011111) : 
+	                                                       (!TEMP_ROM_A[22] ? 6'b111111 : 6'b111111));
+	assign ROM_OE_N = ~(RENDER_ROM_CYCLE | IO_ROM_CYCLE);
 	
 	//Video generator
 	bit  [ 1: 0] DOTCLK_DIV;
@@ -308,10 +337,8 @@ module PS6406B
 	bit  [15: 0] SPR_NUM;
 	bit  [19: 0] SPR_LOAD_OFFSY;
 	bit  [ 7: 0] SPR_LOAD_ZOOMY;
-`ifdef DEBUG
-	bit          SPR_LOAD_PEND;
-`endif
 	always @(posedge CLK or negedge RST_N) begin	
+		bit          SPR_LOAD_PEND,SPR_LOAD_DONE;	
 		bit          IACK0_OLD;	
 		bit  [ 9: 0] SPR_Y;
 		bit  [15: 0] SPR_ZOOMY_VAL;
@@ -321,35 +348,32 @@ module PS6406B
 			SPR_LOAD_STATE <= '0;
 			SPR_LOAD_RUN <= 0;
 			SPR_NUM <= '0;
-`ifdef DEBUG
 			SPR_LOAD_PEND <= 0;
-`endif
 		end else if (EN) begin
-`ifdef DEBUG
 			if (DOT_CE_R) begin
-				if (HCNT == 9'd456 - 1 && VCNT == VBLK_START) begin
+				if (HCNT == 9'd456 - 1 && VCNT == 9'h1FF) begin
+					SPR_LOAD_DONE <= 0;
+				end
+				if (HCNT == 9'd456 - 1 && VCNT == VBLK_START && !SPR_LOAD_DONE) begin
 					SPR_LOAD_PEND <= 1;
 				end
 			end
-`endif
 			
 			if (CE) begin
-//`ifdef DEBUG
-//				if (SPR_LOAD_PEND) begin
-//					SPR_LIST_NUM <= '0;
-//					SPR_LOAD_STATE <= '0;
-//					SPR_LOAD_RUN <= 1;
-//					SPR_LOAD_PEND <= 0;
-//				end
-//`endif
+				if (SPR_LOAD_PEND) begin
+					SPR_LIST_NUM <= '0;
+					SPR_LOAD_STATE <= '0;
+					SPR_LOAD_RUN <= 1;
+					SPR_LOAD_PEND <= 0;
+				end
+
 				IACK0_OLD <= IACK[0];
 				if (IACK[0] && !IACK0_OLD) begin
 					SPR_LIST_NUM <= '0;
 					SPR_LOAD_STATE <= '0;
 					SPR_LOAD_RUN <= 1;
-`ifdef DEBUG
+					SPR_LOAD_DONE <= 1;
 					SPR_LOAD_PEND <= 0;
-`endif
 				end
 				
 				if (SPR_LOAD_RUN) begin
@@ -467,11 +491,9 @@ module PS6406B
 	//Sprite fetch
 	//Cycle0
 	//Y(8), H(4), FLIPY(1), X(10), W(4), FLIPX(1), ZOOMX(16), BPP(1), PAL(8), PRI(2), A(3), TN(19)
-	wire [ 9: 0] SPRITE_X_DATA = /*SPR_EVAL_LIST.X[9] ? (10'h000 - $signed(SPR_EVAL_LIST.X)) :*/ SPR_EVAL_LIST.X;
-	wire [76: 0] SPRITE_PARAM_DATA = {SPR_EVAL_LIST_Y_Q[7:0],SPR_EVAL_LIST.H,SPR_EVAL_LIST.FLIPY,SPRITE_X_DATA,SPR_EVAL_LIST.W,SPR_EVAL_LIST.FLIPX,ZOOM_RAM_X_Q,SPR_EVAL_LIST.BPP,SPR_EVAL_LIST.PAL,SPR_EVAL_LIST.PRI,SPR_EVAL_LIST.A,SPR_EVAL_LIST.TN};
+	wire [76: 0] SPRITE_PARAM_DATA = {SPR_EVAL_LIST_Y_Q[7:0],SPR_EVAL_LIST.H,SPR_EVAL_LIST.FLIPY,SPR_EVAL_LIST.X,SPR_EVAL_LIST.W,SPR_EVAL_LIST.FLIPX,ZOOM_RAM_X_Q,SPR_EVAL_LIST.BPP,SPR_EVAL_LIST.PAL,SPR_EVAL_LIST.PRI,SPR_EVAL_LIST.A,SPR_EVAL_LIST.TN};
 	SpriteFetch_t SPR_LIST;
 	PSH2_SPRITE_PARAM SPRITE_PARAM(CLK, {SPR_EVAL_VCNT[0],SPR_EVAL_CNT[7:0]}, SPRITE_PARAM_DATA, SPR_EVAL_RUN & SPR_EVAL_HIT & CE, {SPR_FETCH_LINE,SPR_FETCH_CNT}, SPR_LIST);
-	
 	
 	bit          SPR_FETCH_LINE;
 	bit          SPR_FETCH_RUN;
@@ -511,7 +533,7 @@ module PS6406B
 		end else if (EN) begin
 			FETCH_X_MASK = SPR_LIST.BPP ? 8'hFC : 8'hF8;
 			
-			{NEW_TILE_X_OVF,NEW_TILE_X,NEW_DOT_X,NEW_X_FRAC} = {1'b0,SPR_FETCH_TILE_X,SPR_FETCH_DOT_X,SPR_FETCH_X_FRAC} +  SPR_LIST.ZOOMX;
+			{NEW_TILE_X_OVF,NEW_TILE_X,NEW_DOT_X,NEW_X_FRAC} = {1'b0,SPR_FETCH_TILE_X,SPR_FETCH_DOT_X,SPR_FETCH_X_FRAC} + SPR_LIST.ZOOMX;
 			FETCH_NEXT_WORD = ({SPR_FETCH_TILE_X,SPR_FETCH_DOT_X} & FETCH_X_MASK) != ({NEW_TILE_X,NEW_DOT_X} & FETCH_X_MASK);
 			if (!BG_FETCH_EN) begin
 				if (SPR_FETCH_RUN) begin
@@ -598,6 +620,7 @@ module PS6406B
 			
 			if (DOT_CE_R) begin
 				SPR_ROM_ADDR <= SPR_LIST.BPP ? {TILE_N,DOT_Y,DOT_X[3:2]} : {1'b0,TILE_N,DOT_Y,DOT_X[3:3]};
+				RENDER_ROM_CYCLE <= SPR_FETCH_RUN | BG_FETCH_EN;
 			end
 		end
 	end
@@ -607,7 +630,6 @@ module PS6406B
 	bit  [ 7: 0] SPR_DRAW_PAL2;
 	bit  [ 2: 0] SPR_DRAW_A2;
 	bit  [ 1: 0] SPR_DRAW_PRI2;
-//	bit          SPR_DRAW_FLIPX2;
 	bit          SPR_DRAW_BPP2;
 	bit          SPR_DRAW_LINE2;
 	bit  [15: 0] SPR_FETCH_X2;
@@ -644,7 +666,6 @@ module PS6406B
 				SPR_DRAW_A2 <= SPR_FETCH_A1;
 				SPR_DRAW_PRI2 <= SPR_FETCH_PRI1;
 				SPR_DRAW_BPP2 <= SPR_FETCH_BPP1;
-//				SPR_DRAW_FLIPX2 <= SPR_FETCH_FLIPX1;
 				SPR_LINE_FILL2 <= SPR_LINE_FILL1;
 				SPR_DRAW_LINE2 <= SPR_DRAW_LINE1;
 				SPR_DOT_NUM2 <= SPR_DRAW_DOT_NUM1;
@@ -658,7 +679,7 @@ module PS6406B
 	bit  [ 7: 0] SPR_DRAW_PIX;
 	always_comb begin
 		if (!SPR_DRAW_BPP2)
-			case (SPR_FETCH_X2[12:10]/*^{3{SPR_DRAW_FLIPX2}}*/)
+			case (SPR_FETCH_X2[12:10])
 				3'h0: SPR_DRAW_PIX <= {4'h0,SPR_FETCH_PATT[31:28]};
 				3'h1: SPR_DRAW_PIX <= {4'h0,SPR_FETCH_PATT[27:24]};
 				3'h2: SPR_DRAW_PIX <= {4'h0,SPR_FETCH_PATT[23:20]};
@@ -669,7 +690,7 @@ module PS6406B
 				3'h7: SPR_DRAW_PIX <= {4'h0,SPR_FETCH_PATT[ 3: 0]};
 			endcase
 		else
-			case (SPR_FETCH_X2[11:10]/*^{2{SPR_DRAW_FLIPX2}}*/)
+			case (SPR_FETCH_X2[11:10])
 				2'h0: SPR_DRAW_PIX <= SPR_FETCH_PATT[31:24];
 				2'h1: SPR_DRAW_PIX <= SPR_FETCH_PATT[23:16];
 				2'h2: SPR_DRAW_PIX <= SPR_FETCH_PATT[15: 8];
@@ -969,7 +990,6 @@ module PS6406B
 	bit  [ 7: 0] BG_PIX_ROW[4][8];
 	always @(posedge CLK or negedge RST_N) begin			
 		if (!RST_N) begin
-			
 		end else if (EN) begin
 			if (DOT_CE_R) begin				
 				if ((HCNT >= 9'h16D && HCNT <= 9'h1C3 && BG_FETCH_ACCESS2[0]) || (HCNT <= 9'h13F && HCNT[1:0] == 2'b01)) begin
@@ -1069,9 +1089,6 @@ module PS6406B
 					THD = SEC;  THD_PRI = SEC_PRI;
 					SEC = 3'd0; SEC_PRI = BG_PRI[0];
 				end 
-//				else if (BG_PRI[0] >= THD_PRI && BG_VIS[0]) begin
-//					THD = 3'd0; THD_PRI = BG_PRI[0];
-//				end
 				
 				     if (BG_PRI[1] >= FST_PRI && BG_VIS[1]) begin
 					FTH = THD;  FTH_PRI = THD_PRI;
@@ -1164,17 +1181,15 @@ module PS6406B
 		endcase
 	end
 	
-		bit  [23: 0] TOP_RGB;
-		bit  [ 7: 0] TOP_A;
 	bit  [23: 0] OUT_RGB;
 	always @(posedge CLK or negedge RST_N) begin
-		bit  [23: 0] BOT_RGB, TEMP_RGB;
+		bit  [23: 0] TOP_RGB, BOT_RGB, TEMP_RGB;
+		bit  [ 7: 0] TOP_A;
 		bit  [ 2: 0] LAYER;
 		bit  [ 7: 0] PIX, ALPHA;
 		bit          POST;
 	
 		if (!RST_N) begin
-//			TOP_RGB <= '0;
 			BOT_RGB <= '0;
 			OUT_RGB <= '0;
 		end else if (EN) begin
@@ -1189,7 +1204,7 @@ module PS6406B
 			POST  = LAYER == 3'h5;
 			
 			if (CE) begin
-				TOP_RGB = LAYER <= 3'h4 ? RGB666Exp(PAL_Q) : LAYER == 3'h5 ? BG_POST_COLOR : BG_PRE_COLOR;
+				TOP_RGB = LAYER <= 3'h4 ? PAL_Q : LAYER == 3'h5 ? BG_POST_COLOR : BG_PRE_COLOR;
 				TOP_A = POST ? (ALPHA[7] ? 8'h00 : ~{ALPHA[6:0],1'b0}) : !ALPHA[7] ? {ALPHA[5:0],ALPHA[5:4]} : PIX[7:6] == 2'b11 ? {PIX[5:0],PIX[5:4]} : 8'h00;
 				
 				if (TOP_A == 8'h00) begin
@@ -1216,7 +1231,7 @@ module PS6406B
 	assign DBG_REGS = REGS[0]^REGS[1]^REGS[2]^REGS[3]^REGS[4]^REGS[5]^REGS[6]^REGS[7];
 	assign DBG_BG_ADDR = {BG_ADDR,1'b0};
 	assign DBG_SPR_ADDR = {SPR_ADDR,1'b0};
-	assign DBG_ROM_ADDR = {ROM_ADDR,2'b00};
+	assign DBG_ROM_ADDR = {ROM_A,2'b00};
 	assign DBG_SPR_LIST = SPR_LIST;
 `endif
 	
