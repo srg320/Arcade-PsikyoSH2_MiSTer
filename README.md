@@ -1,10 +1,10 @@
 # PsikyoSH2 core for MiSTer (WIP)
 
-PS3/5 boards are supported.
 Most of the known issues are related to sound. YMF278B requires further research.
 
 ## Hardware Requirements
-- single 64MB SDRAM Module
+- single 64MB SDRAM Module (for PS3/PS5 board)
+- single 128MB SDRAM Module (for PS4 board)
 
 ## Installation
 1. Copy the latest .rbf file from `releases/` to `/_Arcade/cores/PsikyoSH2.rbf`
