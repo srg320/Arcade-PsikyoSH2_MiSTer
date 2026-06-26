@@ -18,17 +18,18 @@ module sdram1
 	input             clk,			// sdram is accessed at up to 128MHz
 	input             sync,			//
 
-	input     [25: 3] waddr,
+	input     [26: 3] waddr,
 	input             wr,
 	input     [63: 0] din,
 	
-	input     [25: 1] raddr1,
+	input     [25: 2] raddr1,
 	input             rd1,
 	output    [31: 0] dout1,
 	
-	input     [21: 1] raddr2,
+	input     [22: 1] raddr2,
 	input             rd2,
-	output    [15: 0] dout2
+	output    [15: 0] dout2,
+	input             m2
 	
 `ifdef DEBUG
 	                   ,
@@ -36,25 +37,28 @@ module sdram1
 	output [1:0] dbg_ctrl_cmd,
 	output       dbg_ctrl_we,
 	output       dbg_ctrl_rfs,
-	
+	output       dbg_ctrl_chip,
 	output       dbg_data_read,
 	output       dbg_out0_read,dbg_out1_read
 `endif
 );
 
-	localparam RASCAS_DELAY   = 3'd3; // tRCD=20ns -> 2 cycles
-	localparam BURST          = 3'd1; // 0=1, 1=2, 2=4, 3=8, 7=full page
+	localparam RASCAS_DELAY   = 3'd3; // tRCD=20ns -> 2 cycles@85MHz
+	localparam BURST_1        = 3'd1; // 0=1, 1=2, 2=4, 3=8, 7=full page
+	localparam BURST_2        = 3'd1; // 0=1, 1=2, 2=4, 3=8, 7=full page
 	localparam ACCESS_TYPE    = 1'd0; // 0=sequential, 1=interleaved
-	localparam CAS_LATENCY    = 3'd2; // 2/3 allowed
+	localparam CAS_LATENCY_1  = 3'd2; // 2/3 allowed
+	localparam CAS_LATENCY_2  = 3'd2; // 2/3 allowed
 	localparam OP_MODE        = 2'd0; // only 0 (standard operation) allowed
 	localparam NO_WRITE_BURST = 1'd1; // 0=write burst enabled, 1=only single access write
 
-	localparam bit [12:0] MODE = {3'b000, NO_WRITE_BURST, OP_MODE, CAS_LATENCY, ACCESS_TYPE, BURST}; 
+	localparam bit [12:0] MODE[2] = '{{3'b000, NO_WRITE_BURST, OP_MODE, CAS_LATENCY_2, ACCESS_TYPE, BURST_2},
+	                                  {3'b000, NO_WRITE_BURST, OP_MODE, CAS_LATENCY_1, ACCESS_TYPE, BURST_1}}; 
 	
 	localparam STATE_IDLE  = 3'd0;             // state to check the requests
 	localparam STATE_START = STATE_IDLE+1'd1;  // state in which a new command is started
 	localparam STATE_CONT  = STATE_START+RASCAS_DELAY;
-	localparam STATE_READY = STATE_CONT+CAS_LATENCY+1'd1;
+	localparam STATE_READY = STATE_CONT+CAS_LATENCY_1+1'd1;
 	localparam STATE_LAST  = STATE_READY;      // last state in cycle
 	
 	localparam MODE_NORMAL = 2'b00;
@@ -65,6 +69,7 @@ module sdram1
 	// initialization 
 	reg [2:0] init_state = '0;
 	reg [1:0] mode;
+	reg       init_chip = 0;
 	always @(posedge clk) begin
 		reg [4:0] reset = 5'h1f;
 		reg init_old = 0;
@@ -77,17 +82,19 @@ module sdram1
 		init_old <= init;
 		if (init_old & ~init) begin
 			reset <= 5'h1f; 
+			init_chip <= 0;
 			init_done <= 0;
 		end
 		else if (init_state == STATE_LAST) begin
 			if(reset != 0) begin
 				reset <= reset - 5'd1;
-				if (reset == 15 || reset == 14) begin mode <= MODE_PRE; end
-				else if(reset == 4 || reset == 3) begin mode <= MODE_LDM; end
+				if (reset == 15 || reset == 14) begin mode <= MODE_PRE; init_chip <= (reset == 15); end
+				else if(reset == 4 || reset == 3) begin mode <= MODE_LDM; init_chip <= (reset == 4); end
 				else                mode <= MODE_RESET;
 			end
 			else begin
 				mode <= MODE_NORMAL;
+				init_chip <= 0;
 				init_done <= 1;
 			end
 		end
@@ -100,6 +107,7 @@ module sdram1
 	typedef struct packed
 	{
 		bit [ 1: 0] CMD;	//command
+		bit         CHIP;	//chip n
 		bit [ 1: 0] BANK;	//bank
 		bit [23: 1] ADDR;	//read/write address
 		bit [15: 0] DATA;	//write data
@@ -113,10 +121,11 @@ module sdram1
 	reg [ 4: 0] st_num;
 	reg [63: 0] data;
 	
-	reg         read2;
+	reg         write,read1,read2,mode2;
 	always @(posedge clk) begin
 		reg sync_old;
-		reg [21: 1] raddr2_prev;
+		reg [25: 2] raddr1_prev;
+		reg [22: 1] raddr2_prev;
 		
 		sync_old <= sync;
 		if (!init_done) begin
@@ -126,89 +135,129 @@ module sdram1
 			
 			if (!sync && sync_old) begin
 				st_num <= 5'd1;
+				data <= din;
+				write <= wr;
+				read1 <= 0;
+				if (rd1) begin
+					raddr1_prev <= raddr1;
+					read1 <= (raddr1 != raddr1_prev);
+				end
 			end
 			if (sync && !sync_old) begin
-				data <= din;
 			end
 			if (st_num[3:0] == 4'h7) begin
-				raddr2_prev <= raddr2;
-				read2 <= (rd2 && raddr2 != raddr2_prev);
+				read2 <= 0;
+				if (rd2) begin
+					raddr2_prev <= raddr2;
+					read2 <= (raddr2 != raddr2_prev);
+					mode2 <= m2;
+				end
 			end
 		end
 	end
 	
-	always @(posedge clk) begin		
+	always @(posedge clk) begin
 		state[0] <= '0;
 		if (!init_done) begin
 			state[0].CMD <= init_state == STATE_START ? CTRL_RAS : 
 			                init_state == STATE_CONT  ? CTRL_CAS : 
 								                             CTRL_IDLE;
 		end else begin
-			if (wr)
-			case (st_num[3:0])
-				4'd1:  begin state[0].CMD  <= CTRL_RAS;
-								 state[0].ADDR <= {waddr[23:3],2'b00};
-				             state[0].BANK <= waddr[25:24]; end
-								  
-				4'd4:  begin state[0].CMD  <= CTRL_CAS;
-								 state[0].ADDR <= {waddr[23:3],2'b00};
-								 state[0].DATA <= data[63:48];
-								 state[0].WE   <= 1;
-							 	 state[0].BE   <= 2'b11;
-				             state[0].BANK <= waddr[25:24]; end
-								 
-				4'd5:  begin state[0].CMD  <= CTRL_CAS;
-								 state[0].ADDR <= {waddr[23:3],2'b01};
-								 state[0].DATA <= data[47:32];
-								 state[0].WE   <= 1;
-							 	 state[0].BE   <= 2'b11;
-				             state[0].BANK <= waddr[25:24]; end
-								 
-				4'd6:  begin state[0].CMD  <= CTRL_CAS;
-								 state[0].ADDR <= {waddr[23:3],2'b10};
-								 state[0].DATA <= data[31:16];
-								 state[0].WE   <= 1;
-							 	 state[0].BE   <= 2'b11;
-				             state[0].BANK <= waddr[25:24]; end
-								 
-				4'd7:  begin state[0].CMD  <= CTRL_CAS;
-								 state[0].ADDR <= {waddr[23:3],2'b11};
-								 state[0].DATA <= data[15:0];
-								 state[0].WE   <= 1;
-							 	 state[0].BE   <= 2'b11;
-				             state[0].BANK <= waddr[25:24]; end
-								
-				default:;
-			endcase
+			if (write)
+				case (st_num[3:0])
+					4'd1:  begin state[0].CMD  <= CTRL_RAS;
+									 state[0].ADDR <= {waddr[23:3],2'b00};
+									 state[0].BANK <= waddr[25:24];
+									 state[0].CHIP <= waddr[26]; end
+									  
+					4'd4:  begin state[0].CMD  <= CTRL_CAS;
+									 state[0].ADDR <= {waddr[23:3],2'b00};
+									 state[0].DATA <= data[63:48];
+									 state[0].WE   <= 1;
+									 state[0].BE   <= 2'b11;
+									 state[0].BANK <= waddr[25:24];
+									 state[0].CHIP <= waddr[26]; end
+									 
+					4'd5:  begin state[0].CMD  <= CTRL_CAS;
+									 state[0].ADDR <= {waddr[23:3],2'b01};
+									 state[0].DATA <= data[47:32];
+									 state[0].WE   <= 1;
+									 state[0].BE   <= 2'b11;
+									 state[0].BANK <= waddr[25:24];
+									 state[0].CHIP <= waddr[26]; end
+									 
+					4'd6:  begin state[0].CMD  <= CTRL_CAS;
+									 state[0].ADDR <= {waddr[23:3],2'b10};
+									 state[0].DATA <= data[31:16];
+									 state[0].WE   <= 1;
+									 state[0].BE   <= 2'b11;
+									 state[0].BANK <= waddr[25:24];
+									 state[0].CHIP <= waddr[26]; end
+									 
+					4'd7:  begin state[0].CMD  <= CTRL_CAS;
+									 state[0].ADDR <= {waddr[23:3],2'b11};
+									 state[0].DATA <= data[15:0];
+									 state[0].WE   <= 1;
+									 state[0].BE   <= 2'b11;
+									 state[0].BANK <= waddr[25:24];
+									 state[0].CHIP <= waddr[26]; end
+									
+					4'd10: begin state[0].CMD  <= CTRL_RAS;
+									 state[0].RFS  <= 1;
+									 state[0].CHIP <= 0; end
+									
+					4'd11: begin state[0].CMD  <= CTRL_RAS;
+									 state[0].RFS  <= 1;
+									 state[0].CHIP <= 1; end
+									
+					default:;
+				endcase
 			else
-			case (st_num[3:0])
-				4'd1:  begin state[0].CMD  <= CTRL_RAS;
-								 state[0].ADDR <= {raddr1[23:2],1'b0};
-				             state[0].BANK <= raddr1[25:24];
-				             state[0].CH   <= 0;  end
-								  
-				4'd4:  begin state[0].CMD  <= CTRL_CAS;
-								 state[0].ADDR <= {raddr1[23:2],1'b0};
-				             state[0].RD   <= 1;
-				             state[0].BANK <= raddr1[25:24];
-				             state[0].CH   <= 0;  end
-								 
-				4'd8:  begin state[0].CMD  <= read2 ? CTRL_RAS : CTRL_IDLE;
-								 state[0].ADDR <= {2'b11,raddr2[21:1]};
-				             state[0].BANK <= 2'b11;
-				             state[0].CH   <= 1;  end
-								
-				4'd11: begin state[0].CMD  <= read2 ? CTRL_CAS : CTRL_IDLE;
-								 state[0].ADDR <= {2'b11,raddr2[21:1]};
-				             state[0].RD   <= read2;
-				             state[0].BANK <= 2'b11;
-				             state[0].CH   <= 1;  end
-								
-				4'd9:  begin state[0].CMD  <= !read2 ? CTRL_RAS : CTRL_IDLE;
-								 state[0].RFS  <= ~read2;  end
-								
-				default:;
-			endcase
+				case (st_num[3:0])
+					4'd1:  begin state[0].CMD  <= read1 ? CTRL_RAS : CTRL_IDLE;
+									 state[0].ADDR <= {raddr1[23:2],1'b0};
+									 state[0].BANK <= raddr1[25:24];
+									 state[0].CH   <= 0;
+									 state[0].CHIP <= 0; end
+									
+					4'd2:  begin state[0].CMD  <= !read1 ? CTRL_RAS : CTRL_IDLE;
+									 state[0].RFS  <= ~read1;
+									 state[0].CHIP <= 0; end
+									
+					4'd3:  begin state[0].CMD  <= !read1 ? CTRL_RAS : CTRL_IDLE;
+									 state[0].RFS  <= ~read1;
+									 state[0].CHIP <= 1; end
+									  
+					4'd4:  begin state[0].CMD  <= read1 ? CTRL_CAS : CTRL_IDLE;
+									 state[0].ADDR <= {raddr1[23:2],1'b0};
+									 state[0].RD   <= read1;
+									 state[0].BANK <= raddr1[25:24];
+									 state[0].CH   <= 0;
+									 state[0].CHIP <= 0; end
+									 
+					4'd8:  begin state[0].CMD  <= read2 ? CTRL_RAS : CTRL_IDLE;
+									 state[0].ADDR <= mode2 ? {1'b0,raddr2[22:1]} : {2'b11,raddr2[21:1]};
+									 state[0].BANK <= mode2 ? 2'b00 : 2'b11;
+									 state[0].CH   <= 1;
+									 state[0].CHIP <= mode2; end
+									
+					4'd9:  begin state[0].CMD  <= !read2 ? CTRL_RAS : CTRL_IDLE;
+									 state[0].RFS  <= ~read2;
+									 state[0].CHIP <= 0; end
+									
+					4'd10: begin state[0].CMD  <= !read2 ? CTRL_RAS : CTRL_IDLE;
+									 state[0].RFS  <= ~read2;
+									 state[0].CHIP <= 1; end
+									
+					4'd11: begin state[0].CMD  <= read2 ? CTRL_CAS : CTRL_IDLE;
+									 state[0].ADDR <= mode2 ? {1'b0,raddr2[22:1]} : {2'b11,raddr2[21:1]};
+									 state[0].RD   <= read2;
+									 state[0].BANK <= mode2 ? 2'b00 : 2'b11;
+									 state[0].CH   <= 1;
+									 state[0].CHIP <= mode2; end
+									
+					default:;
+				endcase
 		end
 	end
 	always @(posedge clk) begin
@@ -227,6 +276,7 @@ module sdram1
 	wire [ 1:0] ctrl_be    = state[0].BE;
 	wire [ 1:0] ctrl_bank  = state[0].BANK;
 	wire        ctrl_rfs   = state[0].RFS;
+	wire        ctrl_chip  = state[0].CHIP;
 	
 	wire       out0_read  = state[4].RD;
 	wire       ch0_read  = state[4].CH;
@@ -260,14 +310,14 @@ module sdram1
 		if (ctrl_cmd == CTRL_RAS || ctrl_cmd == CTRL_CAS) SDRAM_BA <= (mode == MODE_NORMAL) ? ctrl_bank : 2'b00;
 
 		casex({init_done,ctrl_rfs,ctrl_we,mode,ctrl_cmd})
-			{3'bX0X, MODE_NORMAL, CTRL_RAS}: {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE, SDRAM_nCS} <= {CMD_ACTIVE,1'b0};
-			{3'bX1X, MODE_NORMAL, 2'bXX   }: {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE, SDRAM_nCS} <= {CMD_AUTO_REFRESH,1'b0};
-			{3'b101, MODE_NORMAL, CTRL_CAS}: {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE, SDRAM_nCS} <= {CMD_WRITE,1'b0};
-			{3'b100, MODE_NORMAL, CTRL_CAS}: {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE, SDRAM_nCS} <= {CMD_READ,1'b0};
+			{3'bX0X, MODE_NORMAL, CTRL_RAS}: {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE, SDRAM_nCS} <= {CMD_ACTIVE,ctrl_chip};
+			{3'bX1X, MODE_NORMAL, 2'bXX   }: {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE, SDRAM_nCS} <= {CMD_AUTO_REFRESH,ctrl_chip};
+			{3'b101, MODE_NORMAL, CTRL_CAS}: {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE, SDRAM_nCS} <= {CMD_WRITE,ctrl_chip};
+			{3'b100, MODE_NORMAL, CTRL_CAS}: {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE, SDRAM_nCS} <= {CMD_READ,ctrl_chip};
 
 			// init
-			{3'bXXX,    MODE_LDM, CTRL_RAS}: {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE, SDRAM_nCS} <= {CMD_LOAD_MODE, 1'b0};
-			{3'bXXX,    MODE_PRE, CTRL_RAS}: {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE, SDRAM_nCS} <= {CMD_PRECHARGE, 1'b0};
+			{3'bXXX,    MODE_LDM, CTRL_RAS}: {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE, SDRAM_nCS} <= {CMD_LOAD_MODE, init_chip};
+			{3'bXXX,    MODE_PRE, CTRL_RAS}: {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE, SDRAM_nCS} <= {CMD_PRECHARGE, init_chip};
 
 										   default: {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE, SDRAM_nCS} <= {CMD_NOP,1'b1};
 		endcase
@@ -285,7 +335,7 @@ module sdram1
 				{1'b1,CTRL_CAS}: SDRAM_A <= {dqm  ,wa10,a[10:1]};
 			endcase;
 		end
-		else if (mode == MODE_LDM && ctrl_cmd == CTRL_RAS) SDRAM_A <= MODE;
+		else if (mode == MODE_LDM && ctrl_cmd == CTRL_RAS) SDRAM_A <= MODE[init_chip];
 		else if (mode == MODE_PRE && ctrl_cmd == CTRL_RAS) SDRAM_A <= 13'b0010000000000;
 		else SDRAM_A <= '0;
 	end
@@ -298,7 +348,7 @@ module sdram1
 	assign dbg_ctrl_cmd = ctrl_cmd;
 	assign dbg_ctrl_we = ctrl_we;
 	assign dbg_ctrl_rfs = ctrl_rfs;
-	assign dbg_data_read = data_read;
+	assign dbg_ctrl_chip = ctrl_chip;
 	assign dbg_out0_read = out0_read;
 	assign dbg_out1_read = out1_read;
 `endif
