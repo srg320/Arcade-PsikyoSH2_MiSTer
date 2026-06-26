@@ -58,7 +58,7 @@ module YMF278B
 	bit  [ 7: 0] MEMDAT;
 	bit  [ 5: 0] MIXFM;
 	bit  [ 5: 0] MIXPCM;
-	bit          LD,LD2,BUSY;
+	bit          LD,LD2,BUSY,BUSY2;
 
 	OP2_t        OP2;
 	OP3_t        OP3;
@@ -89,6 +89,7 @@ module YMF278B
 	always @(posedge CLK or negedge RST_N) begin
 		if (!RST_N) begin
 			CLK_DIV <= '0;
+			CYCLE_NUM <= '0;
 		end
 		else if (CE) begin
 			CLK_DIV <= CLK_DIV + 2'd1;
@@ -147,7 +148,6 @@ module YMF278B
 		bit  [ 3: 0] NEW_LOAD_POS;
 		
 		if (!RST_N) begin
-			// synopsys translate_off
 			{OP1_OCT,OP1_FNUM} <= '0;
 			{OP1_LFO,OP1_VIB} <= '0;
 			OP1_LFORST <= 0;
@@ -157,7 +157,6 @@ module YMF278B
 			REG_LOAD <= '{24{0}};
 			SLOT <= '0;
 			RST <= 1;
-			// synopsys translate_on
 			OP2 <= OP2_RESET;
 		end else if (!RES_N) begin
 			{OP1_OCT,OP1_FNUM} <= '0;
@@ -280,14 +279,12 @@ module YMF278B
 		bit          ALLOW;
 		
 		if (!RST_N) begin
-			// synopsys translate_off
 			OP3 <= OP3_RESET;
 			OP2_DATA_BIT <= '0;
 			OP2_SA <= '0;
 			OP2_LA <= '0;
 			OP2_EA <= '0;
 			WD_READ <= 0;
-			// synopsys translate_on
 		end else if (!RES_N) begin
 			OP3 <= OP3_RESET;
 			OP2_DATA_BIT <= '0;
@@ -376,25 +373,20 @@ module YMF278B
 	assign WD_ADDR = WD_SA + WD_OFFS + (!CYCLE_NUM[1] ? 16'd0 : 16'd1);
 	
 	always @(posedge CLK or negedge RST_N) begin
-		bit  [15: 0] WD0,WD1;
+		bit  [15: 0] WD;
 		bit          SO0_CURR,SO0_NEXT;
 		
 		if (!RST_N) begin
 			OP4 <= OP4_RESET;
-			// synopsys translate_off
-			OP4_WD0 <= '0;
-			OP4_WD1 <= '0;
-			// synopsys translate_on
+			OP4_WD <= '0;
 		end else if (!RES_N) begin
 			OP4 <= OP4_RESET;
-			OP4_WD0 <= '0;
-			OP4_WD1 <= '0;
+			OP4_WD <= '0;
 		end else begin
 			if (CYCLE1_CE) begin
 				case (CYCLE_NUM[2:1])
-					2'h0: begin WD0[15:8] <= MDI; SO0_CURR <= SO_MOD[0]; end
-					2'h1: WD0[7:0] <= MDI;
-					2'h2: begin WD1[15:8] <= MDI; SO0_NEXT <= SO_MOD[0]; end
+					2'h1: begin WD[15:8] <= MEM_D; SO0_CURR <= SO_MOD[0]; end
+					2'h2: WD[7:0] <= MEM_D;
 				endcase
 			end
 			
@@ -404,8 +396,7 @@ module YMF278B
 				OP4.KON <= OP3.KON;
 				OP4.KOFF <= OP3.KOFF;
 				OP4.MODF <= MOD_PHASE_CURR[5:0];
-				OP4_WD0 <= WD0;
-				OP4_WD1 <= {WD1[15:8],MDI};
+				OP4_WD <= WD;
 				OP4_DATA_LEN <= WD_DATA_LEN;
 				OP4_SO0_CURR <= SO0_CURR;
 				OP4_SO0_NEXT <= SO0_NEXT;
@@ -414,7 +405,7 @@ module YMF278B
 	end
 	
 	//Operation 4: Interpolation, EG, ALFO
-	bit  [15: 0] OP4_WD0,OP4_WD1;
+	bit  [15: 0] OP4_WD;
 	bit  [ 1: 0] OP4_DATA_LEN;
 	bit          OP4_SO0_CURR,OP4_SO0_NEXT;
 	
@@ -468,15 +459,12 @@ module YMF278B
 		bit  [10: 0] ATTACK_VOL_CALC,DECAY_VOL_CALC;
 		bit  [ 9: 0] NEW_EVOL;
 		bit  [ 1: 0] NEW_EST;
-		bit  [15: 0] WD0,WD1;
 		
 		if (!RST_N) begin
 			OP5 <= OP5_RESET;
-			// synopsys translate_off
 			{OP4_AR,OP4_D1R,OP4_D2R,OP4_RR,OP4_RC,OP4_DL} <= '0;
 			{OP4_OCT,OP4_FNUM9} <= '0;
 			{OP4_EST,OP4_EVOL} <= '0;
-			// synopsys translate_on
 		end else if (!RES_N) begin
 			OP5 <= OP5_RESET;
 			{OP4_AR,OP4_D1R,OP4_D2R,OP4_RR,OP4_RC,OP4_DL} <= '0;
@@ -581,13 +569,9 @@ module YMF278B
 				OP5.KOFF <= OP4.KOFF;
 				OP5.EVOL <= NEW_EVOL;
 				
-				WD0 = OP4_DATA_LEN == 2'b00 ? {OP4_WD0[15:8],8'h00} : 
-				      OP4_DATA_LEN == 2'b01 ? (!OP4_SO0_CURR ? {OP4_WD0[15:8],OP4_WD0[7:4],4'h0} : {OP4_WD0[7:0],OP4_WD0[11:8],4'h0}) : 
-							                     OP4_WD0;
-//				WD1 = OP4_DATA_LEN == 2'b00 ? {OP4_WD1[15:8],8'h00} : 
-//				      OP4_DATA_LEN == 2'b01 ? (!OP4_SO0_NEXT ? {OP4_WD1[15:8],OP4_WD1[7:4],4'h0} : {OP4_WD1[7:0],OP4_WD1[11:8],4'h0}) : 
-//							                     OP4_WD1;
-				OP5.WD <= WD0;//Interpolate(WD0, WD1, OP4.MODF);
+				OP5.WD <= OP4_DATA_LEN == 2'b00 ? {OP4_WD[15:8],8'h00} : 
+				          OP4_DATA_LEN == 2'b01 ? (!OP4_SO0_CURR ? {OP4_WD[15:8],OP4_WD[7:4],4'h0} : {OP4_WD[7:0],OP4_WD[11:8],4'h0}) : 
+							                         OP4_WD;
 				
 				OP5.ALFO <= AMCalc(OP4_LFO_DATA, OP4_AM);
 			end
@@ -606,9 +590,7 @@ module YMF278B
 	
 		if (!RST_N) begin
 			OP6 <= OP6_RESET;
-			// synopsys translate_off
 			{OP5_TL,OP5_LDIR} <= '0;
-			// synopsys translate_on
 		end else if (!RES_N) begin
 			OP6 <= OP6_RESET;
 			{OP5_TL,OP5_LDIR} <= '0;
@@ -649,8 +631,6 @@ module YMF278B
 	always @(posedge CLK or negedge RST_N) begin		
 		if (!RST_N) begin
 			OP7 <= OP7_RESET;
-			// synopsys translate_off
-			// synopsys translate_on
 		end else if (!RES_N) begin
 			OP7 <= OP7_RESET;
 		end else begin
@@ -675,11 +655,9 @@ module YMF278B
 		bit signed [15:0] PAN_L,PAN_R;
 		
 		if (!RST_N) begin
-			// synopsys translate_off
 			OP7_PAN <= '0;
 			ACC_L <= 0;
 			ACC_R <= 0;
-			// synopsys translate_on
 		end else if (!RES_N) begin
 			OP7_PAN <= '0;
 			ACC_L <= 0;
@@ -716,10 +694,8 @@ module YMF278B
 	bit  [15: 0] PCM_L,PCM_R;
 	always @(posedge CLK or negedge RST_N) begin
 		if (!RST_N) begin
-			// synopsys translate_off
 			PCM_L <= '0;
 			PCM_R <= '0;
-			// synopsys translate_on
 		end else if (!RES_N) begin
 			
 		end else begin
@@ -730,62 +706,14 @@ module YMF278B
 		end
 	end
 	
-	//Memory
+	//Memory/Registers
 	bit          MEM_WREQ,MEM_RREQ;
 	always @(posedge CLK or negedge RST_N) begin
-		bit         MEM_START;
-				
-		if (!RST_N) begin
-			MEM_A <= '0;
-			MEM_WR <= 0;
-			MEM_RD <= 0;
-		end else begin
-			if (!RES_N) begin
-				MEM_A <= '0;
-				MEM_WR <= 0;
-				MEM_RD <= 0;
-			end else if (CE) begin
-				if (CYCLE1_CE) begin
-					MEM_WR <= 0;
-					MEM_RD <= 0;
-					MEM_D <= MDI;
-				end
-				
-				MEM_START <= CYCLE1_CE;
-				if (MEM_START && WD_READ && !MEMMODE[0]) begin
-					MEM_A <= WD_ADDR;
-					MEM_WR <= 0;
-					MEM_RD <= 1;
-				end
-				else if ((MEM_WREQ || MEM_RREQ) && MEMMODE[0]) begin
-					MEM_A <= MEMADDR;
-					MEM_WR <= MEM_WREQ;
-					MEM_RD <= MEM_RREQ;
-				end
-			end
-		end
-	end
-	assign MA = MEM_A[20:0];
-	assign MDO = MEMDAT;
-	assign MWR_N = ~MEM_WR;
-	assign MRD_N = ~MEM_RD;
-	assign MCS_N[0] = ~(MEM_A[21:19] ==? 3'b0??);
-	assign MCS_N[1] = ~(MEM_A[21:19] ==? 3'b1??);
-	assign MCS_N[2] = ~(MEM_A[21:19] ==? 3'b00?);
-	assign MCS_N[3] = ~(MEM_A[21:19] ==? 3'b01?);
-	assign MCS_N[4] = ~(MEM_A[21:19] ==? 3'b10?);
-	assign MCS_N[5] = ~(MEM_A[21:19] ==? 3'b11?);
-	assign MCS_N[6] = ~(MEM_A[21:19] == 3'b100);
-	assign MCS_N[7] = ~(MEM_A[21:19] == 3'b101);
-	assign MCS_N[8] = ~(MEM_A[21:19] == 3'b110);
-	assign MCS_N[9] = ~(MEM_A[21:19] == 3'b111);
-	
-	//Registers
-	always @(posedge CLK or negedge RST_N) begin
 		bit         WR_N_OLD,RD_N_OLD,CS_N_OLD;
-		bit         REG_RD_DELAY;
+		bit [ 1: 0] REG_RD_DELAY;
 		bit         REG_NEW_SEL;
 		bit [ 3: 0] LD_WAIT;
+		bit         MEM_START;
 		
 		if (!RST_N) begin
 			NEW2 <= 0;
@@ -797,7 +725,7 @@ module YMF278B
 			MIXFM <= '0;
 			MIXPCM <= '0;
 			REG_Q <= '0;
-			BUSY <= 0;
+			{BUSY,BUSY2} <= 0;
 			LD <= 0;
 			LD2 <= 0;
 		end else begin
@@ -811,7 +739,11 @@ module YMF278B
 				MIXFM <= {3'h3,3'h3};
 				MIXPCM <= {3'h0,3'h0};
 				LD2 <= 0;
+				MEM_A <= '0;
+				MEM_WR <= 0;
+				MEM_RD <= 0;
 			end else if (CE) begin
+				//Register access
 				if (CYCLE1_CE) begin
 					REG_RD <= 0;
 					REG_WR <= 0;
@@ -847,9 +779,8 @@ module YMF278B
 					else LD <= 0;
 				end
 				
-				MEM_WREQ <= 0;
-				MEM_RREQ <= 0;
-				REG_RD_DELAY <= REG_RD;
+				REG_RD_DELAY[0] <= REG_RD;
+				REG_RD_DELAY[1] <= REG_RD_DELAY[0];
 				if (REG_WR && CYCLE1_CE) begin
 					case (REG_A)
 						8'h00: TEST0 <= REG_D;
@@ -867,8 +798,10 @@ module YMF278B
 						LD <= 1;
 						LD_WAIT <= 4'd12;
 					end
-					MEM_WREQ <= (REG_A == 8'h06);
-				end else if (REG_RD_DELAY) begin
+					if (REG_A == 8'h06) begin MEM_WREQ <= 1; BUSY2 <= 1; end
+					if (REG_A == 8'h05) begin MEM_RREQ <= 1; BUSY2 <= 1; end
+				end
+				if (REG_RD_DELAY == 2'b01) begin
 					if (REG_WTN_SEL) REG_Q <= REG_WTN_Q;
 					else if (REG_FNUM0_SEL) REG_Q <= REG_FNUM_Q[15:8];
 					else if (REG_FNUM1_SEL) REG_Q <= REG_FNUM_Q[7:0];
@@ -892,12 +825,55 @@ module YMF278B
 							8'hF9: REG_Q <= {2'b00,MIXPCM};
 							default: REG_Q <= '0;
 						endcase
-						MEM_RREQ <= (REG_A == 8'h06);
+						if (REG_A == 8'h06) begin MEM_RREQ <= 1; BUSY2 <= 1; end
 					end
+				end
+				
+				//Memory access
+				if (CYCLE1_CE) begin
+					if (MEM_RD && !MEMMODE[0]) begin
+						MEM_D <= MDI;
+					end
+					if ((MEM_RD || MEM_WR) && MEMMODE[0]) begin
+						MEMDAT <= MDI;
+						MEMADDR <= MEMADDR + 22'd1;
+					end
+					MEM_WR <= 0;
+					MEM_RD <= 0;
+					BUSY2 <= 0;
+				end
+				
+				MEM_START <= CYCLE1_CE;
+				if (MEM_START && WD_READ && !MEMMODE[0]) begin
+					MEM_A <= WD_ADDR;
+					MEM_WR <= 0;
+					MEM_RD <= 1;
+				end
+				else if (MEM_START && (MEM_WREQ || MEM_RREQ) && MEMMODE[0]) begin
+					MEM_A <= MEMADDR;
+					MEM_WR <= MEM_WREQ;
+					MEM_RD <= MEM_RREQ;
+					BUSY2 <= 1;
+					MEM_WREQ <= 0;
+					MEM_RREQ <= 0;
 				end
 			end
 		end
 	end
+	assign MA = MEM_A[20:0];
+	assign MDO = MEMDAT;
+	assign MWR_N = ~MEM_WR;
+	assign MRD_N = ~MEM_RD;
+	assign MCS_N[0] = ~(MEM_A[21:19] ==? 3'b0??);
+	assign MCS_N[1] = ~(MEM_A[21:19] ==? 3'b1??);
+	assign MCS_N[2] = ~(MEM_A[21:19] ==? 3'b00?);
+	assign MCS_N[3] = ~(MEM_A[21:19] ==? 3'b01?);
+	assign MCS_N[4] = ~(MEM_A[21:19] ==? 3'b10?);
+	assign MCS_N[5] = ~(MEM_A[21:19] ==? 3'b11?);
+	assign MCS_N[6] = ~(MEM_A[21:19] == 3'b100);
+	assign MCS_N[7] = ~(MEM_A[21:19] == 3'b101);
+	assign MCS_N[8] = ~(MEM_A[21:19] == 3'b110);
+	assign MCS_N[9] = ~(MEM_A[21:19] == 3'b111);
 
 	
 	wire       REG_SA0_LOAD   = (OP3.LOAD_POS == 4'h0);
@@ -975,7 +951,7 @@ module YMF278B
 	assign {OPL3_OUT_A,OPL3_OUT_B,OPL3_OUT_C,OPL3_OUT_D} = '0;
 	assign IRQ_N = 1;
 	
-	assign DO = A == 3'h5 ? REG_Q : OPL3_DO | {6'b000000,LD|LD2,BUSY};
+	assign DO = A == 3'h5 ? REG_Q : OPL3_DO | {6'b000000,LD|LD2,BUSY|BUSY2};
 	
 	assign OUT0_L = OPL3_OUT_C;
 	assign OUT0_R = OPL3_OUT_D;

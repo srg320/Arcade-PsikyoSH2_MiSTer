@@ -269,14 +269,6 @@ package YMF278B_PKG;
 		
 		return !SUM[10] ? SUM[9:0] : 10'h3FF;
 	endfunction
-	
-//	function bit [9:0] LevelAddTL(bit [9:0] LEVEL, bit [6:0] TL);
-//		bit [10:0] SUM;
-//		
-//		SUM = {1'b0,LEVEL} + {1'b0,TL,3'b000};
-//		
-//		return !SUM[10] ? SUM[9:0] : 10'h3FF;
-//	endfunction
 
 	function bit signed [15:0] VolCalc(bit signed [15:0] WAVE, bit [9:0] LEVEL);
 		bit [22:0] MULT;
