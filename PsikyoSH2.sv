@@ -184,7 +184,7 @@ module emu
 	assign LED_POWER = 0;
 	assign LED_USER  = 0;
 	assign VGA_SCALER = 0;
-	assign HDMI_BLACKOUT = 1;
+	assign HDMI_BLACKOUT = 0;
 	assign FB_FORCE_BLANK = 0;
 
 	///////////////////////////////////////////////////
@@ -209,6 +209,9 @@ module emu
 		"O[16],Autosave NVRAM,Off,On;",
 		"T[17],Save NVRAM;",
 		"-;",
+		
+		"DIP;",
+		"-;",
 	
 		"P1,Audio & Video;",
 		"P1O[2:1],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
@@ -224,14 +227,14 @@ module emu
 		"-;",
 
 		"R0,Reset;",
-		"J1,B1,B2,B3,B4,Start,Coin,Test,Service;",
+		"J1,B1,B2,B3,Start,Coin,Test,Service;",
 		"V,v",`BUILD_DATE
 	};
-	
+
 	wire [127:0] status;
 	wire [ 15:0] menumask;
 	wire [  1:0] buttons;
-	wire [ 13:0] joystick_0,joystick_1,joystick_2,joystick_3,joystick_4;
+	wire [ 31:0] joystick_0,joystick_1,joystick_2,joystick_3,joystick_4;
 	wire [  7:0] joy0_x0,joy0_y0,joy0_x1,joy0_y1,joy1_x0,joy1_y0,joy1_x1,joy1_y1;
 	wire         ioctl_download,ioctl_upload;
 	wire         ioctl_upload_req;
@@ -248,7 +251,7 @@ module emu
 	wire [  7:0] sd_buff_addr;
 	wire [ 15:0] sd_buff_dout;
 	wire [ 15:0] sd_buff_din0;
-	wire [ 15:0] sd_buff_din;
+	wire [ 15:0] sd_buff_din = 0;
 	wire         sd_buff_wr;
 	wire [  1:0] img_mounted;
 	wire         img_readonly;
@@ -366,9 +369,8 @@ module emu
 	end
 	wire rst_sys = reset | download | rst_ram | loader_rst;
 	
-	//[1:0] - ver: 0-PS3,1-PS5
-	//[2] - debug mode
-	//[5:4] - input mode: 1,2,3,4 buttons
+	//[1:0] - ver: 0-PS3,1-PS5,2-PS4
+	//[5:4] - input mode: 1,2,3,4 buttons; 1 button,mahjong panel,3,4 buttons
 	reg  [7:0] BOARD_CONF = 8'h00;
 	always @(posedge clk_sys) begin
 		if (conf_download && ioctl_wr && ioctl_addr[8:0] == 9'h000) begin
@@ -376,28 +378,66 @@ module emu
 		end
 	end
 	
-	wire [7:0] p1,p2,p3,p4;
+	reg [7:0] dip_sw = '0;
+	always @(posedge clk_sys) begin
+		if (ioctl_wr && (ioctl_index == 8'd254) && !ioctl_addr)
+			dip_sw <= ioctl_data[7:0];
+	end
+	
+	wire [7:0] p0,p1,p2,p3,pA;
 	always_comb begin
-		if (BOARD_CONF[5:4] == 2'h0) begin
-			p1 = ~{joystick_0[3],joystick_0[2],joystick_0[0],joystick_0[1],joystick_0[4],2'b00,joystick_0[5]};
-			p2 = ~{joystick_1[3],joystick_1[2],joystick_1[0],joystick_1[1],joystick_1[4],2'b00,joystick_1[5]};
-			p3 = 8'hFF;
-			p4 = ~{1'b0,BOARD_CONF[2],joystick_0[7],joystick_0[8],2'b11,joystick_1[6],joystick_0[6]};
-		end else if (BOARD_CONF[5:4] == 2'h1) begin
-			p1 = ~{joystick_0[3],joystick_0[2],joystick_0[0],joystick_0[1],joystick_0[4],joystick_0[5],1'b0,joystick_0[6]};
-			p2 = ~{joystick_1[3],joystick_1[2],joystick_1[0],joystick_1[1],joystick_1[4],joystick_1[5],1'b0,joystick_1[6]};
-			p3 = 8'hFF;
-			p4 = ~{1'b0,BOARD_CONF[2],joystick_0[8],joystick_0[9],2'b11,joystick_1[7],joystick_0[7]};
-		end else if (BOARD_CONF[5:4] == 2'h2) begin
-			p1 = ~{joystick_0[3],joystick_0[2],joystick_0[0],joystick_0[1],joystick_0[4],joystick_0[5],joystick_0[6],joystick_0[7]};
-			p2 = ~{joystick_1[3],joystick_1[2],joystick_1[0],joystick_1[1],joystick_1[4],joystick_1[5],joystick_1[6],joystick_1[7]};
-			p3 = 8'hFF;
-			p4 = ~{1'b0,BOARD_CONF[2],joystick_0[9],joystick_0[10],2'b11,joystick_1[8],joystick_0[8]};
-		end else begin
-			p1 = ~{joystick_0[3],joystick_0[2],joystick_0[0],joystick_0[1],joystick_0[4],joystick_0[5],1'b0,joystick_0[8]};
-			p2 = ~{joystick_1[3],joystick_1[2],joystick_1[0],joystick_1[1],joystick_1[4],joystick_1[5],1'b0,joystick_1[8]};
-			p3 = ~{joystick_0[6],joystick_0[7],2'b00,joystick_1[6],joystick_1[7],2'b00};
-			p4 = ~{1'b0,BOARD_CONF[2],joystick_0[10],joystick_0[11],2'b11,joystick_1[9],joystick_0[9]};
+		reg [5:0] mp_key;
+	
+		mp_key = '0;
+		if (BOARD_CONF[1:0] <= 2'h1) begin	//PS3/PS5
+			if (BOARD_CONF[5:4] == 2'h0) begin
+				p0 = ~{joystick_0[3],joystick_0[2],joystick_0[0],joystick_0[1],joystick_0[4],2'b00,joystick_0[5]};
+				p1 = ~{joystick_1[3],joystick_1[2],joystick_1[0],joystick_1[1],joystick_1[4],2'b00,joystick_1[5]};
+				p2 = 8'hFF;
+				p3 = ~{1'b0,~dip_sw[6],joystick_0[7],joystick_0[8],2'b11,joystick_1[6],joystick_0[6]};
+			end else if (BOARD_CONF[5:4] == 2'h1) begin
+				p0 = ~{joystick_0[3],joystick_0[2],joystick_0[0],joystick_0[1],joystick_0[4],joystick_0[5],1'b0,joystick_0[6]};
+				p1 = ~{joystick_1[3],joystick_1[2],joystick_1[0],joystick_1[1],joystick_1[4],joystick_1[5],1'b0,joystick_1[6]};
+				p2 = 8'hFF;
+				p3 = ~{1'b0,~dip_sw[6],joystick_0[8],joystick_0[9],2'b11,joystick_1[7],joystick_0[7]};
+			end else if (BOARD_CONF[5:4] == 2'h2) begin
+				p0 = ~{joystick_0[3],joystick_0[2],joystick_0[0],joystick_0[1],joystick_0[4],joystick_0[5],joystick_0[6],joystick_0[7]};
+				p1 = ~{joystick_1[3],joystick_1[2],joystick_1[0],joystick_1[1],joystick_1[4],joystick_1[5],joystick_1[6],joystick_1[7]};
+				p2 = 8'hFF;
+				p3 = ~{1'b0,~dip_sw[6],joystick_0[9],joystick_0[10],2'b11,joystick_1[8],joystick_0[8]};
+			end else begin
+				p0 = ~{joystick_0[3],joystick_0[2],joystick_0[0],joystick_0[1],joystick_0[4],joystick_0[5],1'b0,joystick_0[8]};
+				p1 = ~{joystick_1[3],joystick_1[2],joystick_1[0],joystick_1[1],joystick_1[4],joystick_1[5],1'b0,joystick_1[8]};
+				p2 = ~{joystick_0[6],joystick_0[7],2'b00,joystick_1[6],joystick_1[7],2'b00};
+				p3 = ~{1'b0,~dip_sw[6],joystick_0[10],joystick_0[11],2'b11,joystick_1[9],joystick_0[9]};
+			end
+		end
+		else begin	//PS4
+			if (BOARD_CONF[5:4] == 2'h0) begin //1 button
+				p0 = ~{joystick_0[5],2'b00,joystick_0[4],joystick_0[0],joystick_0[1],joystick_0[2],joystick_0[3]};
+				p1 = ~{joystick_1[5],2'b00,joystick_1[4],joystick_1[0],joystick_1[1],joystick_1[2],joystick_1[3]};
+				p2 = 8'hFF;
+				p3 = ~{1'b0,~dip_sw[6],joystick_0[7],joystick_0[8],2'b11,joystick_1[6],joystick_0[6]};
+			end else if (BOARD_CONF[5:4] == 2'h1) begin //mahjong panel
+				if (pA[0]) mp_key = {joystick_0[23],joystick_0[20],joystick_0[16],joystick_0[12],joystick_0[ 8],joystick_0[4]};
+				if (pA[1]) mp_key = {joystick_0[24],joystick_0[21],joystick_0[17],joystick_0[13],joystick_0[ 9],joystick_0[5]};
+				if (pA[2]) mp_key = {1'b0          ,joystick_0[22],joystick_0[18],joystick_0[14],joystick_0[10],joystick_0[6]};
+				if (pA[3]) mp_key = {1'b0          ,1'b0          ,joystick_0[19],joystick_0[15],joystick_0[11],joystick_0[7]};
+				p0 = ~{2'b00,mp_key};
+				p1 = 8'hFF;
+				p2 = 8'hFF;
+				p3 = ~{1'b0,~dip_sw[6],joystick_0[26],joystick_0[27],3'b000,joystick_0[25]};
+			end else if (BOARD_CONF[5:4] == 2'h2) begin //3 buttons
+				p0 = ~{joystick_0[7],joystick_0[6],joystick_0[5],joystick_0[4],joystick_0[0],joystick_0[1],joystick_0[2],joystick_0[3]};
+				p1 = ~{joystick_1[7],joystick_1[6],joystick_1[5],joystick_1[4],joystick_1[0],joystick_1[1],joystick_1[2],joystick_1[3]};
+				p2 = 8'hFF;
+				p3 = ~{1'b0,~dip_sw[6],joystick_0[9],joystick_0[10],2'b00,joystick_1[8],joystick_0[8]};
+			end else begin //4 buttons
+				p0 = ~{joystick_0[8],3'b000,joystick_0[7],joystick_0[6],joystick_0[5],joystick_0[4]};
+				p1 = ~{joystick_1[8],3'b000,joystick_1[7],joystick_1[6],joystick_1[5],joystick_1[4]};
+				p2 = 8'hFF;
+				p3 = ~{1'b0,~dip_sw[6],joystick_0[10],joystick_0[11],2'b11,joystick_1[9],joystick_0[9]};
+			end
 		end
 	end
 	
@@ -420,7 +460,7 @@ module emu
 	wire [31: 0] GFX_ROM_D;
 	wire         GFX_ROM_RD_N;
 	
-	wire [21: 0] SOUND_ROM_A;
+	wire [22: 0] SOUND_ROM_A;
 	wire [ 7: 0] SOUND_ROM_D;
 	wire         SOUND_ROM_RD_N;
 	
@@ -489,10 +529,12 @@ module emu
 		.SOUND_L(SOUND_L),
 		.SOUND_R(SOUND_R),
 		
+		.P0(p0),
 		.P1(p1),
 		.P2(p2),
 		.P3(p3),
-		.P4(p4),
+		.P4({4'h0,dip_sw[3:0]}),
+		.PA(pA),
 		
 		.VER(BOARD_CONF[1:0]),
 		
@@ -510,7 +552,9 @@ module emu
 	assign AUDIO_R = SOUND_R;
 
 	
-	//GFX/Sound ROM (GFX-0x0000000..0x3C00000,Sound-0x3C00000..0x3FFFFFF)
+	//GFX/Sound ROM 
+	//PS3/PS5 (GFX-0x0000000..0x3C00000,Sound-0x3C00000..0x3FFFFFF)
+	//PS4 (GFX-0x0000000..0x3FFFFFF,Sound-0x4000000..0x47FFFFF)
 	wire        sdr_rdy;
 	wire [31:0] sdr_dout1;
 	wire [15:0] sdr_dout2;
@@ -537,13 +581,14 @@ module emu
 		.wr  (loader_state != 0),
 		.din (sdr_rom_data),
 		
-		.raddr1({GFX_ROM_A[23:0],1'b0}),
+		.raddr1(GFX_ROM_A[23:0]),
 		.rd1 (~GFX_ROM_RD_N),
 		.dout1(sdr_dout1),
 		
-		.raddr2(SOUND_ROM_A[21:1]),
+		.raddr2(SOUND_ROM_A[22:1]),
 		.rd2 (~SOUND_ROM_RD_N),
-		.dout2(sdr_dout2)
+		.dout2(sdr_dout2),
+		.m2(BOARD_CONF[1:0] == 2'h2)
 	);
 	assign GFX_ROM_D = sdr_dout1;
 	assign SOUND_ROM_D = !SOUND_ROM_A[0] ? sdr_dout2[15:8] : sdr_dout2[7:0];
@@ -554,7 +599,7 @@ module emu
 	reg  [63: 0] ddr_rom_do;
 	reg          ddr_rom_rd;
 	wire         ddr_rom_busy;
-	reg  [25: 3] sdr_rom_addr;
+	reg  [26: 3] sdr_rom_addr;
 	reg  [63: 0] sdr_rom_data;
 	reg          sdr_rom_wr;
 	reg  [ 7: 1] eeprom_addr;
@@ -601,7 +646,7 @@ module emu
 				
 				4'd9: begin
 					sdr_rom_addr <= sdr_rom_addr + 1'd1;
-					if (ddr_rom_addr[26]) begin
+					if (ddr_rom_addr == (BOARD_CONF[1:0] == 2'h2 ? (27'h4800000>>3) : (27'h4000000>>3))) begin
 						if (nvram_load_ckip) begin
 							loader_state = 4'd0; 
 							loader_rst <= 0;
@@ -615,7 +660,7 @@ module emu
 				end
 				
 				4'd10: if (!ddr_rom_busy) begin
-					ddr_rom_addr <= 27'h4200000>>3;
+					ddr_rom_addr <= 27'h4A00000>>3;
 					ddr_rom_rd <= 1;
 					loader_state = 4'd11;
 				end
@@ -862,7 +907,7 @@ module emu
 //	);
 
 	assign AUDIO_MIX = !status[9] ? 2'b11 : 2'b00;
-	
+
 	//debug
 	reg  [ 5: 0] SCRN_EN = 6'b111111;
 	reg  [ 2: 0] SND_EN = 3'b111;

@@ -193,7 +193,7 @@ always @(posedge clk) begin
 			0: begin
 				if (dram_write_busy) begin
 					dram_write_busy <= 0;
-					ram_address <= {5'b00110,7'b1000011,dram_write_addr[19:3]};
+					ram_address <= {5'b00110,7'b1001011,dram_write_addr[19:3]};
 					ram_din		<= {2{dram_write_data}};
 					case (dram_write_addr[2])
 						1'b0: ram_be <= {dram_write_be,4'b0000};
@@ -205,7 +205,7 @@ always @(posedge clk) begin
 					state       <= 3'h1;
 				end
 				else if (dram_read_busy) begin
-					ram_address <= {5'b00110,7'b1000011,dram_rcache_addr[19:5],2'b00};
+					ram_address <= {5'b00110,7'b1001011,dram_rcache_addr[19:5],2'b00};
 					ram_be      <= 8'hFF;
 					ram_read    <= 1;
 					ram_burst   <= 4;
@@ -215,7 +215,7 @@ always @(posedge clk) begin
 					state       <= 3'h2;
 				end
 				else if (prom_read_busy) begin
-					ram_address <= {5'b00110,7'b1000000,prom_rcache_addr[19:5],2'b00};
+					ram_address <= {5'b00110,7'b1001000,prom_rcache_addr[19:5],2'b00};
 					ram_be      <= 8'hFF;
 					ram_read    <= 1;
 					ram_burst   <= 4;
@@ -225,7 +225,7 @@ always @(posedge clk) begin
 					state       <= 3'h2;
 				end
 				else if (drom_read_busy) begin
-					ram_address <= {5'b00110,7'b1000001,drom_rcache_addr[19:5],2'b00};
+					ram_address <= {5'b00110,7'b1001001,drom_rcache_addr[19:5],2'b00};
 					ram_be      <= 8'hFF;
 					ram_read    <= 1;
 					ram_burst   <= 4;
@@ -236,7 +236,7 @@ always @(posedge clk) begin
 				end
 				else if (bios_write_busy) begin
 					bios_write_busy <= 0;
-					ram_address <= {5'b00110,6'b100000,bios_write_addr[20:3]};
+					ram_address <= {5'b00110,6'b100100,bios_write_addr[20:3]};
 					ram_din		<= {4{bios_write_data}};
 					case (bios_write_addr[2:1])
 						2'b00: ram_be <= {bios_be,6'b000000};
