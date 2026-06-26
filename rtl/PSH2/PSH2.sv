@@ -27,7 +27,7 @@ module PSH2
 	input      [31: 0] GFX_ROM_D,
 	output             GFX_ROM_RD_N,
 	
-	output     [21: 0] SOUND_ROM_A,
+	output     [22: 0] SOUND_ROM_A,
 	input      [ 7: 0] SOUND_ROM_D,
 	output             SOUND_ROM_RD_N,
 	
@@ -49,12 +49,14 @@ module PSH2
 	output     [15: 0] SOUND_L,
 	output     [15: 0] SOUND_R,
 	
+	input      [ 7: 0] P0,
 	input      [ 7: 0] P1,
 	input      [ 7: 0] P2,
 	input      [ 7: 0] P3,
 	input      [ 7: 0] P4,
+	output reg [ 7: 0] PA,
 	
-	input      [ 1: 0] VER,		//0-PS3,1-PS5,
+	input      [ 1: 0] VER,		//0-PS3,1-PS5,2-PS4
 	
 	input      [ 5: 0] SCRN_EN,
 	input      [ 8: 0] HS_OFFS,
@@ -92,6 +94,8 @@ module PSH2
 	bit  [21: 0] PS_ROM_A;
 	bit  [ 5: 0] PS_ROM_CE_N;
 	bit          PS_ROM_OE_N;
+	bit  [ 7: 0] EEP_IN;
+	bit  [ 7: 0] PS35_EEP_DATA,PS4_EEP_DATA;
 	
 	bit  [ 7: 0] YMF_DO;
 	bit          YMF_CS_N;
@@ -99,15 +103,16 @@ module PSH2
 	bit          YMF_IRQ_N;
 	bit  [20: 0] YMF_MA;
 	bit  [ 9: 0] YMF_MCS_N;
+	bit  [15: 0] PS4_YMF_BANK;
 	
 	bit  [ 7: 0] IO_DO;
 	bit          IO_CS_N;
 	
 	wire         PROG_SEL = (!CPU_CS0_N && CPU_A[24:20] == 5'b00000);
-	wire         DATA_SEL = (!CPU_CS1_N && CPU_A[24:20] == 5'b00000 && VER == 2'h0) || (!CPU_CS2_N && CPU_A[24:20] == 5'b10000 && VER == 2'h1);
-	wire         PS_SEL   = (!CPU_CS1_N && CPU_A[24:20] == 5'b10000 && VER == 2'h0) || (!CPU_CS2_N && CPU_A[24:20] == 5'b00000 && VER == 2'h1);
-	wire         YMF_SEL  = (!CPU_CS2_N && CPU_A[24:20] == 5'b10000 && VER == 2'h0) || (!CPU_CS1_N && CPU_A[24:20] == 5'b10001 && VER == 2'h1);
-	wire         IO_SEL   = (!CPU_CS2_N && CPU_A[24:20] == 5'b11000 && VER == 2'h0) || (!CPU_CS1_N && CPU_A[24:20] == 5'b10000 && VER == 2'h1);
+	wire         DATA_SEL = (!CPU_CS1_N && CPU_A[24:20] == 5'b00000 && VER == 2'h0) || (!CPU_CS2_N && CPU_A[24:20] == 5'b10000 && VER == 2'h1) || (!CPU_CS1_N && CPU_A[24:21] == 4'b0000  && VER == 2'h2);
+	wire         PS_SEL   = (!CPU_CS1_N && CPU_A[24:20] == 5'b10000 && VER == 2'h0) || (!CPU_CS2_N && CPU_A[24:20] == 5'b00000 && VER == 2'h1) || (!CPU_CS1_N && CPU_A[24:20] == 5'b10000 && VER == 2'h2);
+	wire         YMF_SEL  = (!CPU_CS2_N && CPU_A[24:20] == 5'b10000 && VER == 2'h0) || (!CPU_CS1_N && CPU_A[24:20] == 5'b10001 && VER == 2'h1) || (!CPU_CS2_N && CPU_A[24:20] == 5'b10000 && VER == 2'h2);
+	wire         IO_SEL   = (!CPU_CS2_N && CPU_A[24:20] == 5'b11000 && VER == 2'h0) || (!CPU_CS1_N && CPU_A[24:20] == 5'b10000 && VER == 2'h1) || (!CPU_CS2_N && CPU_A[24:20] == 5'b11000 && VER == 2'h2);
 	
 	assign PS_CS_N = ~PS_SEL;
 	assign YMF_CS_N = ~YMF_SEL;
@@ -211,6 +216,26 @@ module PSH2
 	assign DRAM_CE_N = CPU_CS3_N;
 	
 	
+	bit  [15: 0] PS6406B_DO;
+	bit          PS6406B_WAIT_N;
+	bit          PS6406B_IRQ_N;
+	bit  [21: 0] PS6406B_ROM_A;
+	bit  [ 5: 0] PS6406B_ROM_CE_N;
+	bit          PS6406B_ROM_OE_N;
+	bit  [14: 0] PS6406B_SRAM_A;
+	bit  [15: 0] PS6406B_SRAM_DO;
+//	bit          PS6406B_SRAM_OE_N;
+	bit  [ 1: 0] PS6406B_SRAM_WE_N;
+	bit          PS6406B_SRAM_CE_N;
+	bit  [ 7: 0] PS6406B_R;
+	bit  [ 7: 0] PS6406B_G;
+	bit  [ 7: 0] PS6406B_B;
+	bit          PS6406B_DCLK;
+	bit          PS6406B_HS_N;
+	bit          PS6406B_VS_N;
+	bit          PS6406B_HBL_N;
+	bit          PS6406B_VBL_N;
+	bit          PS6406B_V240;
 	PS6406B PS6406B
 	(
 		.CLK(CLK),
@@ -221,39 +246,123 @@ module PSH2
 		
 		.A(CPU_A[18:1]),
 		.DI(CPU_DO[15:0]),
-		.DO(PS_DO),
+		.DO(PS6406B_DO),
 		.RD_N(CPU_RD_N),
 		.WE_N(CPU_WE_N[1:0]),
 		.CS_N(PS_CS_N),
-		.WAIT_N(PS_WAIT_N),
+		.WAIT_N(PS6406B_WAIT_N),
 		
-		.IRQ_N(PS_IRQ_N),
+		.IRQ_N(PS6406B_IRQ_N),
 		
-		.ROM_A(PS_ROM_A),
+		.ROM_A(PS6406B_ROM_A),
 		.ROM_D(GFX_ROM_D),
-		.ROM_CE_N(PS_ROM_CE_N),
-		.ROM_OE_N(PS_ROM_OE_N),
+		.ROM_CE_N(PS6406B_ROM_CE_N),
+		.ROM_OE_N(PS6406B_ROM_OE_N),
 		
-		.SRAM_A(PS_SRAM_A),
+		.SRAM_A(PS6406B_SRAM_A),
 		.SRAM_DI(PS_SRAM_DI),
-		.SRAM_DO(PS_SRAM_DO),
+		.SRAM_DO(PS6406B_SRAM_DO),
 		.SRAM_OE_N(),
-		.SRAM_WE_N(PS_SRAM_WE_N),
-		.SRAM_CE_N(PS_SRAM_CE_N),
+		.SRAM_WE_N(PS6406B_SRAM_WE_N),
+		.SRAM_CE_N(PS6406B_SRAM_CE_N),
 		
-		.R(R),
-		.G(G),
-		.B(B),
-		.DCLK(DCLK),
-		.HS_N(HS_N),
-		.VS_N(VS_N),
-		.HBL_N(HBL_N),
-		.VBL_N(VBL_N),
-		.V240(V240),
+		.R(PS6406B_R),
+		.G(PS6406B_G),
+		.B(PS6406B_B),
+		.DCLK(PS6406B_DCLK),
+		.HS_N(PS6406B_HS_N),
+		.VS_N(PS6406B_VS_N),
+		.HBL_N(PS6406B_HBL_N),
+		.VBL_N(PS6406B_VBL_N),
+		.V240(PS6406B_V240),
 		
 		.SCRN_EN(SCRN_EN),
 		.HS_OFFS(HS_OFFS)
 	);
+	
+	bit  [15: 0] PS6807_DO;
+	bit          PS6807_WAIT_N;
+	bit          PS6807_IRQ_N;
+	bit  [21: 0] PS6807_ROM_A;
+	bit  [ 5: 0] PS6807_ROM_CE_N;
+	bit          PS6807_ROM_OE_N;
+	bit  [14: 0] PS6807_SRAM_A;
+	bit  [15: 0] PS6807_SRAM_DO;
+//	bit          PS6807_SRAM_OE_N;
+	bit  [ 1: 0] PS6807_SRAM_WE_N;
+	bit          PS6807_SRAM_CE_N;
+	bit  [ 7: 0] PS6807_R;
+	bit  [ 7: 0] PS6807_G;
+	bit  [ 7: 0] PS6807_B;
+	bit          PS6807_DCLK;
+	bit          PS6807_HS_N;
+	bit          PS6807_VS_N;
+	bit          PS6807_HBL_N;
+	bit          PS6807_VBL_N;
+	bit          PS6807_V240;
+	PS6807 PS6807
+	(
+		.CLK(CLK),
+		.RST_N(RST_N),
+		.EN(EN),
+		
+		.CE(SYS_CE_R),
+		
+		.A(CPU_A[14:1]),
+		.DI(CPU_DO[15:0]),
+		.DO(PS6807_DO),
+		.RD_N(CPU_RD_N),
+		.WE_N(CPU_WE_N[1:0]),
+		.CS_N(PS_CS_N),
+		.WAIT_N(PS6807_WAIT_N),
+		
+		.IRQ_N(PS6807_IRQ_N),
+		
+		.ROM_A(PS6807_ROM_A),
+		.ROM_D(GFX_ROM_D),
+		.ROM_CE_N(PS6807_ROM_CE_N),
+		.ROM_OE_N(PS6807_ROM_OE_N),
+		
+		.SRAM_A(PS6807_SRAM_A),
+		.SRAM_DI(PS_SRAM_DI),
+		.SRAM_DO(PS6807_SRAM_DO),
+		.SRAM_OE_N(),
+		.SRAM_WE_N(PS6807_SRAM_WE_N),
+		.SRAM_CE_N(PS6807_SRAM_CE_N),
+		
+		.R(PS6807_R),
+		.G(PS6807_G),
+		.B(PS6807_B),
+		.DCLK(PS6807_DCLK),
+		.HS_N(PS6807_HS_N),
+		.VS_N(PS6807_VS_N),
+		.HBL_N(PS6807_HBL_N),
+		.VBL_N(PS6807_VBL_N),
+		.V240(PS6807_V240),
+		
+		.EEP_OUT(PS4_EEP_DATA),
+		.EEP_IN(EEP_IN),
+		
+		.SCRN_EN(SCRN_EN),
+		.HS_OFFS(HS_OFFS)
+	);
+	
+	always_comb begin
+		if (VER <= 2'h1) begin
+			{PS_DO,PS_WAIT_N,PS_IRQ_N} = {PS6406B_DO,PS6406B_WAIT_N,PS6406B_IRQ_N};
+			{PS_ROM_A,PS_ROM_CE_N,PS_ROM_OE_N} = {PS6406B_ROM_A,PS6406B_ROM_CE_N,PS6406B_ROM_OE_N};
+			{PS_SRAM_A,PS_SRAM_DO,PS_SRAM_WE_N,PS_SRAM_CE_N} = {PS6406B_SRAM_A,PS6406B_SRAM_DO,PS6406B_SRAM_WE_N,PS6406B_SRAM_CE_N};
+			{R,G,B} = {PS6406B_R,PS6406B_G,PS6406B_B};
+			{DCLK,HS_N,VS_N,HBL_N,VBL_N,V240} = {PS6406B_DCLK,PS6406B_HS_N,PS6406B_VS_N,PS6406B_HBL_N,PS6406B_VBL_N,PS6406B_V240};
+		end
+		else begin
+			{PS_DO,PS_WAIT_N,PS_IRQ_N} = {PS6807_DO,PS6807_WAIT_N,PS6807_IRQ_N};
+			{PS_ROM_A,PS_ROM_CE_N,PS_ROM_OE_N} = {PS6807_ROM_A,PS6807_ROM_CE_N,PS6807_ROM_OE_N};
+			{PS_SRAM_A,PS_SRAM_DO,PS_SRAM_WE_N,PS_SRAM_CE_N} = {PS6807_SRAM_A,PS6807_SRAM_DO,PS6807_SRAM_WE_N,PS6807_SRAM_CE_N};
+			{R,G,B} = {PS6807_R,PS6807_G,PS6807_B};
+			{DCLK,HS_N,VS_N,HBL_N,VBL_N,V240} = {PS6807_DCLK,PS6807_HS_N,PS6807_VS_N,PS6807_HBL_N,PS6807_VBL_N,PS6807_V240};
+		end
+	end
 	
 	assign GFX_ROM_A = {!PS_ROM_CE_N[0]?3'b000:
 	                     !PS_ROM_CE_N[1]?3'b001:
@@ -297,26 +406,42 @@ module PSH2
 		.MWR_N(),
 		.MCS_N(YMF_MCS_N),
 	
-		.OUT2_L(SOUND_L),
-		.OUT2_R(SOUND_R),
+		.OUT1_L(SOUND_L),
+		.OUT1_R(SOUND_R),
 		
 		.SND_EN(SND_EN)
 	);
-	assign SOUND_ROM_A = {YMF_MCS_N[0],YMF_MA};
 	
-	bit          EEP_DI,EEP_DO,EEP_CS,EEP_CLK;
+	always_comb begin
+		bit [ 2: 0] YMF_BANK[4];
+		
+		YMF_BANK = '{PS4_YMF_BANK[2:0],PS4_YMF_BANK[6:4],PS4_YMF_BANK[10:8],PS4_YMF_BANK[14:12]};
+		if (VER <= 2'h1) begin
+			SOUND_ROM_A = {1'b0,YMF_MCS_N[0],YMF_MA};
+		end else begin
+			SOUND_ROM_A = !YMF_MCS_N[2] ? {YMF_BANK[0],YMF_MA[19:0]} :
+			              !YMF_MCS_N[3] ? {YMF_BANK[1],YMF_MA[19:0]} :
+							  !YMF_MCS_N[4] ? {YMF_BANK[2],YMF_MA[19:0]} :
+							  !YMF_MCS_N[5] ? {YMF_BANK[3],YMF_MA[19:0]} : '0;
+		end
+	end
+	
 	always @(posedge CLK or negedge RST_N) begin
 		bit          CPU_WE0_N_OLD;
 		
 		if (!RST_N) begin
-			YMF_RES_N <= 0;
-			{EEP_DI,EEP_CS,EEP_CLK} <= '1;
+			PS35_EEP_DATA <= '1;
+			PS4_YMF_BANK <= '0;
+			PA <= '0;
 		end else if (EN) begin
 			if (SYS_CE_R) begin
 				CPU_WE0_N_OLD <= CPU_WE_N[0];
 				if (IO_SEL && !CPU_WE_N[0] && CPU_WE0_N_OLD) begin
-					case (CPU_A[2:0])
-						3'h4: {EEP_CS,EEP_CLK,EEP_DI,YMF_RES_N} <= {CPU_DO[7:5],CPU_DO[1]};
+					case (CPU_A[3:0])
+						4'h4: PS35_EEP_DATA <= CPU_DO[7:0];
+						4'h8: PS4_YMF_BANK[15:8] <= CPU_DO[7:0];
+						4'h9: PS4_YMF_BANK[7:0] <= CPU_DO[7:0];
+						4'hA: PA <= CPU_DO[7:0];
 						default:;
 					endcase
 				end
@@ -325,15 +450,37 @@ module PSH2
 		end
 	end
 	
+	bit          EEP_DI,EEP_DO,EEP_CS,EEP_CLK;
 	always_comb begin
-		case (CPU_A[2:0])
-			3'h0: IO_DO <= P1;
-			3'h1: IO_DO <= P2;
-			3'h2: IO_DO <= P3;
-			3'h3: IO_DO <= P4;
-			3'h4: IO_DO <= {EEP_CS,EEP_CLK,EEP_DI,EEP_DO,4'b0001};
-			default: IO_DO <= '1;
-		endcase
+		if (VER <= 2'h1) begin
+			{EEP_CS,EEP_CLK,EEP_DI} <= PS35_EEP_DATA[7:5];
+			YMF_RES_N <= PS35_EEP_DATA[1];
+		end else begin
+			{EEP_CS,EEP_CLK,EEP_DI} <= PS4_EEP_DATA[7:5];
+			YMF_RES_N <= RST_N;
+		end
+	end
+	assign EEP_IN = {EEP_CS,EEP_CLK,EEP_DI,EEP_DO,P4[3:0]};
+	
+	always_comb begin
+		if (VER <= 2'h1) begin
+			case (CPU_A[2:0])
+				3'h0: IO_DO <= P0;
+				3'h1: IO_DO <= P2;
+				3'h2: IO_DO <= P2;
+				3'h3: IO_DO <= P3;
+				3'h4: IO_DO <= EEP_IN;
+				default: IO_DO <= '1;
+			endcase
+		end else begin
+			case (CPU_A[2:0])
+				3'h0: IO_DO <= P0;
+				3'h1: IO_DO <= P1;
+				3'h2: IO_DO <= P2;
+				3'h3: IO_DO <= P3;
+				default: IO_DO <= '1;
+			endcase
+		end
 	end
 	
 	E93C56A EEP

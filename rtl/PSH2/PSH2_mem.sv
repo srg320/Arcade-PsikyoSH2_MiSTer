@@ -90,15 +90,15 @@ module PSH2_PAL_RAM
 (
 	input          CLK,
 	input  [13: 2] WRADDR,
-	input  [ 5: 0] DATA,
+	input  [ 7: 0] DATA,
 	input          WREN,
 	input  [13: 2] RDADDR,
-	output [ 5: 0] Q
+	output [ 7: 0] Q
 );
 
 `ifdef SIM
 	
-	reg [5:0] MEM [2**12];
+	reg [7:0] MEM [2**12];
 	initial begin
 		MEM <= '{2**12{'0}};
 	end
@@ -112,7 +112,7 @@ module PSH2_PAL_RAM
 	
 `else
 
-	wire [5:0] sub_wire0;
+	wire [7:0] sub_wire0;
 	
 	altsyncram	altsyncram_component (
 				.address_a (WRADDR),
@@ -132,7 +132,7 @@ module PSH2_PAL_RAM
 				.clocken1 (1'b1),
 				.clocken2 (1'b1),
 				.clocken3 (1'b1),
-				.data_b ({6{1'b1}}),
+				.data_b ({8{1'b1}}),
 				.eccstatus (),
 				.q_a (),
 				.rden_a (1'b1),
@@ -157,8 +157,8 @@ module PSH2_PAL_RAM
 		altsyncram_component.read_during_write_mode_mixed_ports = "DONT_CARE",
 		altsyncram_component.widthad_a = 12,
 		altsyncram_component.widthad_b = 12,
-		altsyncram_component.width_a = 6,
-		altsyncram_component.width_b = 6,
+		altsyncram_component.width_a = 8,
+		altsyncram_component.width_b = 8,
 		altsyncram_component.width_byteena_a = 1;
 	
 	assign Q = sub_wire0;
@@ -236,20 +236,21 @@ module PSH2_ZOOM_RAM
 endmodule
 
 module PSH2_SPRITE_LIST
+ #(parameter wa =10)
 (
-	input          CLK,
-	input  [ 9: 0] WRADDR,
-	input  [15: 0] DATA,
-	input          WREN,
-	input  [ 9: 0] RDADDR,
-	output [15: 0] Q
+	input            CLK,
+	input  [wa-1: 0] WRADDR,
+	input  [  15: 0] DATA,
+	input            WREN,
+	input  [wa-1: 0] RDADDR,
+	output [  15: 0] Q
 );
 
 `ifdef SIM
 	
-	reg [15:0] MEM [2**10];
+	reg [15:0] MEM [2**wa];
 	initial begin
-		MEM <= '{2**10{'0}};
+		MEM <= '{2**wa{'0}};
 	end
 	always @(posedge CLK) begin
 		if (WREN) begin
@@ -296,16 +297,16 @@ module PSH2_SPRITE_LIST
 		altsyncram_component.clock_enable_output_b = "BYPASS",
 		altsyncram_component.intended_device_family = "Cyclone V",
 		altsyncram_component.lpm_type = "altsyncram",
-		altsyncram_component.numwords_a = 2**10,
-		altsyncram_component.numwords_b = 2**10,
+		altsyncram_component.numwords_a = 2**wa,
+		altsyncram_component.numwords_b = 2**wa,
 		altsyncram_component.operation_mode = "DUAL_PORT",
 		altsyncram_component.outdata_aclr_b = "NONE",
 		altsyncram_component.outdata_reg_b = "UNREGISTERED",
 		altsyncram_component.power_up_uninitialized = "FALSE",
 		altsyncram_component.ram_block_type = "M10K",
 		altsyncram_component.read_during_write_mode_mixed_ports = "DONT_CARE",
-		altsyncram_component.widthad_a = 10,
-		altsyncram_component.widthad_b = 10,
+		altsyncram_component.widthad_a = wa,
+		altsyncram_component.widthad_b = wa,
 		altsyncram_component.width_a = 16,
 		altsyncram_component.width_b = 16,
 		altsyncram_component.width_byteena_a = 1;
@@ -538,20 +539,21 @@ module PSH2_SPRITE_OFFS_X
 endmodule
 
 module PSH2_SPRITE_LIST_Y
+ #(parameter wa =10)
 (
-	input          CLK,
-	input  [ 9: 0] WRADDR,
-	input  [ 9: 0] DATA,
-	input          WREN,
-	input  [ 9: 0] RDADDR,
-	output [ 9: 0] Q
+	input            CLK,
+	input  [wa-1: 0] WRADDR,
+	input  [   9: 0] DATA,
+	input            WREN,
+	input  [wa-1: 0] RDADDR,
+	output [   9: 0] Q
 );
 
 `ifdef SIM
 	
-	reg [9:0] MEM [2**10];
+	reg [9:0] MEM [2**wa];
 	initial begin
-		MEM <= '{2**10{'0}};
+		MEM <= '{2**wa{'0}};
 	end
 	always @(posedge CLK) begin
 		if (WREN) begin
@@ -598,16 +600,16 @@ module PSH2_SPRITE_LIST_Y
 		altsyncram_component.clock_enable_output_b = "BYPASS",
 		altsyncram_component.intended_device_family = "Cyclone V",
 		altsyncram_component.lpm_type = "altsyncram",
-		altsyncram_component.numwords_a = 2**10,
-		altsyncram_component.numwords_b = 2**10,
+		altsyncram_component.numwords_a = 2**wa,
+		altsyncram_component.numwords_b = 2**wa,
 		altsyncram_component.operation_mode = "DUAL_PORT",
 		altsyncram_component.outdata_aclr_b = "NONE",
 		altsyncram_component.outdata_reg_b = "UNREGISTERED",
 		altsyncram_component.power_up_uninitialized = "FALSE",
 		altsyncram_component.ram_block_type = "M10K",
 		altsyncram_component.read_during_write_mode_mixed_ports = "DONT_CARE",
-		altsyncram_component.widthad_a = 10,
-		altsyncram_component.widthad_b = 10,
+		altsyncram_component.widthad_a = wa,
+		altsyncram_component.widthad_b = wa,
 		altsyncram_component.width_a = 10,
 		altsyncram_component.width_b = 10,
 		altsyncram_component.width_byteena_a = 1;
