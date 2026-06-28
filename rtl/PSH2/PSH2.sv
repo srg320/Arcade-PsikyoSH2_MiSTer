@@ -8,7 +8,7 @@ module PSH2
 	
 	input              RES_N,
 	
-	output     [19: 1] ROM_A,
+	output     [20: 1] ROM_A,
 	input      [31: 0] ROM_D,
 	output             PROM_CE_N,
 	output             DROM_CE_N,
@@ -39,7 +39,8 @@ module PSH2
 	output     [ 7: 0] R,
 	output     [ 7: 0] G,
 	output     [ 7: 0] B,
-	output             DCLK,
+	output             DCLK1,
+	output             DCLK2,
 	output             HS_N,
 	output             VS_N,
 	output             HBL_N,
@@ -54,7 +55,11 @@ module PSH2
 	input      [ 7: 0] P2,
 	input      [ 7: 0] P3,
 	input      [ 7: 0] P4,
+	input      [ 7: 0] P5,
+	input      [ 7: 0] P6,
+	input      [ 7: 0] P7,
 	output reg [ 7: 0] PA,
+	input      [ 7: 0] JP4,
 	
 	input      [ 1: 0] VER,		//0-PS3,1-PS5,2-PS4
 	
@@ -204,7 +209,7 @@ module PSH2
 						 !IO_CS_N ? {24'h000000,IO_DO} :
 						 32'h00000000;
 	
-	assign ROM_A = CPU_A[19:1];
+	assign ROM_A = CPU_A[20:1];
 	assign PROM_CE_N = ~PROG_SEL;
 	assign DROM_CE_N = ~DATA_SEL;
 	assign ROM_OE_N = CPU_RD_N;
@@ -294,7 +299,7 @@ module PSH2
 	bit  [ 7: 0] PS6807_R;
 	bit  [ 7: 0] PS6807_G;
 	bit  [ 7: 0] PS6807_B;
-	bit          PS6807_DCLK;
+	bit          PS6807_DCLK1,PS6807_DCLK2;
 	bit          PS6807_HS_N;
 	bit          PS6807_VS_N;
 	bit          PS6807_HBL_N;
@@ -333,7 +338,8 @@ module PSH2
 		.R(PS6807_R),
 		.G(PS6807_G),
 		.B(PS6807_B),
-		.DCLK(PS6807_DCLK),
+		.DCLK1(PS6807_DCLK1),
+		.DCLK2(PS6807_DCLK2),
 		.HS_N(PS6807_HS_N),
 		.VS_N(PS6807_VS_N),
 		.HBL_N(PS6807_HBL_N),
@@ -353,14 +359,14 @@ module PSH2
 			{PS_ROM_A,PS_ROM_CE_N,PS_ROM_OE_N} = {PS6406B_ROM_A,PS6406B_ROM_CE_N,PS6406B_ROM_OE_N};
 			{PS_SRAM_A,PS_SRAM_DO,PS_SRAM_WE_N,PS_SRAM_CE_N} = {PS6406B_SRAM_A,PS6406B_SRAM_DO,PS6406B_SRAM_WE_N,PS6406B_SRAM_CE_N};
 			{R,G,B} = {PS6406B_R,PS6406B_G,PS6406B_B};
-			{DCLK,HS_N,VS_N,HBL_N,VBL_N,V240} = {PS6406B_DCLK,PS6406B_HS_N,PS6406B_VS_N,PS6406B_HBL_N,PS6406B_VBL_N,PS6406B_V240};
+			{DCLK1,DCLK2,HS_N,VS_N,HBL_N,VBL_N,V240} = {PS6406B_DCLK,1'b0,PS6406B_HS_N,PS6406B_VS_N,PS6406B_HBL_N,PS6406B_VBL_N,PS6406B_V240};
 		end
 		else begin
 			{PS_DO,PS_WAIT_N,PS_IRQ_N} = {PS6807_DO,PS6807_WAIT_N,PS6807_IRQ_N};
 			{PS_ROM_A,PS_ROM_CE_N,PS_ROM_OE_N} = {PS6807_ROM_A,PS6807_ROM_CE_N,PS6807_ROM_OE_N};
 			{PS_SRAM_A,PS_SRAM_DO,PS_SRAM_WE_N,PS_SRAM_CE_N} = {PS6807_SRAM_A,PS6807_SRAM_DO,PS6807_SRAM_WE_N,PS6807_SRAM_CE_N};
 			{R,G,B} = {PS6807_R,PS6807_G,PS6807_B};
-			{DCLK,HS_N,VS_N,HBL_N,VBL_N,V240} = {PS6807_DCLK,PS6807_HS_N,PS6807_VS_N,PS6807_HBL_N,PS6807_VBL_N,PS6807_V240};
+			{DCLK1,DCLK2,HS_N,VS_N,HBL_N,VBL_N,V240} = {PS6807_DCLK1,PS6807_DCLK2,PS6807_HS_N,PS6807_VS_N,PS6807_HBL_N,PS6807_VBL_N,PS6807_V240};
 		end
 	end
 	
@@ -460,7 +466,7 @@ module PSH2
 			YMF_RES_N <= RST_N;
 		end
 	end
-	assign EEP_IN = {EEP_CS,EEP_CLK,EEP_DI,EEP_DO,P4[3:0]};
+	assign EEP_IN = {EEP_CS,EEP_CLK,EEP_DI,EEP_DO,JP4[3:0]};
 	
 	always_comb begin
 		if (VER <= 2'h1) begin
@@ -478,6 +484,10 @@ module PSH2
 				3'h1: IO_DO <= P1;
 				3'h2: IO_DO <= P2;
 				3'h3: IO_DO <= P3;
+				3'h4: IO_DO <= P4;
+				3'h5: IO_DO <= P5;
+				3'h6: IO_DO <= P6;
+				3'h7: IO_DO <= P7;
 				default: IO_DO <= '1;
 			endcase
 		end
