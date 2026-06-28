@@ -27,7 +27,7 @@ module ddram
 	input          prom_rd,
 	output         prom_busy,
 	
-	input  [19: 1] drom_addr,
+	input  [20: 1] drom_addr,
 	output [15: 0] drom_dout,
 	input          drom_rd,
 	output         drom_busy,
@@ -69,7 +69,7 @@ reg            prom_rcache_dirty;
 reg            prom_rcache_busy;
 reg            prom_read_busy;
 
-reg  [ 19:  1] drom_rcache_addr;
+reg  [ 20:  1] drom_rcache_addr;
 reg            drom_rcache_dirty;
 reg            drom_rcache_busy;
 reg            drom_read_busy;
@@ -81,10 +81,10 @@ reg            bios_write_busy;
 
 reg            rom_read_busy;
 
-reg  [ 31:  3] fb_write_addr;
-reg  [ 63:  0] fb_write_data;
-reg  [  7:  0] fb_be;
-reg            fb_write_busy;
+//reg  [ 31:  3] fb_write_addr;
+//reg  [ 63:  0] fb_write_data;
+//reg  [  7:  0] fb_be;
+//reg            fb_write_busy;
 
 reg  [  2:  0] state = 0;
 
@@ -108,6 +108,23 @@ always @(posedge clk) begin
 	old_rst <= rst;
 end
 wire           rst_pulse = (rst && !old_rst);
+
+wire           fb_fifo_wrreq,fb_fifo_rdreq;
+always_comb begin
+	fb_fifo_wrreq = (|fb_we && !fb_we_old);
+	fb_fifo_rdreq = (state == 3'h1 && !DDRAM_BUSY && ram_chan == 4'd5);
+end
+
+wire [100:  0] fb_fifo_dout;
+wire           fb_fifo_empty,fb_fifo_full;
+
+ddr_infifo #(3) ramh_fifo (clk, rst_pulse, {fb_addr,fb_we,fb_din}, fb_fifo_wrreq, fb_fifo_rdreq, fb_fifo_dout, fb_fifo_empty, fb_fifo_full);
+
+wire [ 31:  3] fb_write_addr;
+wire [ 63:  0] fb_write_data;
+wire [  7:  0] fb_write_be;
+
+assign {fb_write_addr,fb_write_be,fb_write_data} = fb_fifo_dout;
 
 always @(posedge clk) begin
 	bit write,read,burst_read;
@@ -138,7 +155,7 @@ always @(posedge clk) begin
 		end
 		
 		if (drom_rd && !drom_rd_old) begin
-			if (drom_addr[19:5] != drom_rcache_addr[19:5] || drom_rcache_dirty) begin
+			if (drom_addr[20:5] != drom_rcache_addr[20:5] || drom_rcache_dirty) begin
 				drom_read_busy <= 1;
 			end
 			drom_rcache_addr <= drom_addr;
@@ -152,7 +169,7 @@ always @(posedge clk) begin
 	end
 		
 	if (rst_pulse) begin
-		{dram_write_busy,bios_write_busy,fb_write_busy} <= 0;
+		{dram_write_busy,bios_write_busy/*,fb_write_busy*/} <= 0;
 	end
 	else begin
 		if (|dram_wr && !dram_wr_old) begin
@@ -172,12 +189,12 @@ always @(posedge clk) begin
 			bios_write_busy <= 1;	
 		end
 		
-		if (|fb_we && !fb_we_old) begin
-			fb_write_addr <= fb_addr;
-			fb_write_data <= fb_din;
-			fb_be <= fb_we;
-			fb_write_busy <= 1;	
-		end
+//		if (|fb_we && !fb_we_old) begin
+//			fb_write_addr <= fb_addr;
+//			fb_write_data <= fb_din;
+//			fb_be <= fb_we;
+//			fb_write_busy <= 1;	
+//		end
 	end
 	
 	if (rst_pulse) begin
@@ -193,7 +210,7 @@ always @(posedge clk) begin
 			0: begin
 				if (dram_write_busy) begin
 					dram_write_busy <= 0;
-					ram_address <= {5'b00110,7'b1001011,dram_write_addr[19:3]};
+					ram_address <= {5'b00110,7'b1001111,dram_write_addr[19:3]};
 					ram_din		<= {2{dram_write_data}};
 					case (dram_write_addr[2])
 						1'b0: ram_be <= {dram_write_be,4'b0000};
@@ -205,7 +222,7 @@ always @(posedge clk) begin
 					state       <= 3'h1;
 				end
 				else if (dram_read_busy) begin
-					ram_address <= {5'b00110,7'b1001011,dram_rcache_addr[19:5],2'b00};
+					ram_address <= {5'b00110,7'b1001111,dram_rcache_addr[19:5],2'b00};
 					ram_be      <= 8'hFF;
 					ram_read    <= 1;
 					ram_burst   <= 4;
@@ -225,7 +242,7 @@ always @(posedge clk) begin
 					state       <= 3'h2;
 				end
 				else if (drom_read_busy) begin
-					ram_address <= {5'b00110,7'b1001001,drom_rcache_addr[19:5],2'b00};
+					ram_address <= {5'b00110,6'b100101,drom_rcache_addr[20:5],2'b00};
 					ram_be      <= 8'hFF;
 					ram_read    <= 1;
 					ram_burst   <= 4;
@@ -259,11 +276,11 @@ always @(posedge clk) begin
 					word_cnt    <= '0;
 					state       <= 3'h2;
 				end
-				else if (fb_write_busy) begin
-					fb_write_busy <= 0;
+				else if (!fb_fifo_empty) begin
+//					fb_write_busy <= 0;
 					ram_address <= fb_write_addr;
 					ram_din		<= fb_write_data;
-					ram_be      <= fb_be;
+					ram_be      <= fb_write_be;
 					ram_write 	<= 1;
 					ram_burst   <= 1;
 					ram_chan    <= 4'd5;
@@ -320,7 +337,7 @@ always_comb begin
 	
 	rom_busy = rom_read_busy;
 	
-	fb_busy = fb_write_busy;
+	fb_busy = fb_fifo_full;
 end
 
 assign DDRAM_CLK      = clk;
@@ -403,5 +420,89 @@ module ddr_cache_ram #(parameter wa = 2) (
 		altsyncram_component.width_a = 64,
 		altsyncram_component.width_b = 64,
 		altsyncram_component.width_byteena_a = 1;
+
+endmodule
+
+
+module ddr_infifo 
+#(parameter l = 3)
+(
+	input	          CLK,
+	input           RST,
+	
+	input	 [100: 0] DATA,
+	input	          WRREQ,
+	
+	input	          RDREQ,
+	output [100: 0] Q,
+	output	       EMPTY,
+	output	       FULL
+);
+
+	wire [100: 0] sub_wire0;
+	bit  [l-1: 0] RADDR;
+	bit  [l-1: 0] WADDR;
+	bit  [  l: 0] AMOUNT;
+	
+	always @(posedge CLK) begin
+		if (RST) begin
+			AMOUNT <= '0;
+			RADDR <= '0;
+			WADDR <= '0;
+		end
+		else begin
+			if (WRREQ && !AMOUNT[l]) begin
+				WADDR <= WADDR + 1'd1;
+			end
+			if (RDREQ && AMOUNT) begin
+				RADDR <= RADDR + 1'd1;
+			end
+			
+			if (WRREQ && !RDREQ && !AMOUNT[l]) begin
+				AMOUNT <= AMOUNT + 1'd1;
+			end else if (!WRREQ && RDREQ && AMOUNT) begin
+				AMOUNT <= AMOUNT - 1'd1;
+			end
+		end
+	end
+	assign EMPTY = ~|AMOUNT;
+	assign FULL = AMOUNT[l];
+	
+	altdpram	altdpram_component (
+				.data (DATA),
+				.inclock (CLK),
+				.rdaddress (RADDR),
+				.wraddress (WADDR),
+				.wren (WRREQ),
+				.q (sub_wire0),
+				.aclr (1'b0),
+				.byteena (1'b1),
+				.inclocken (1'b1),
+				.rdaddressstall (1'b0),
+				.rden (1'b1),
+//				.sclr (1'b0),
+				.wraddressstall (1'b0));
+	defparam
+		altdpram_component.indata_aclr = "OFF",
+		altdpram_component.indata_reg = "INCLOCK",
+		altdpram_component.intended_device_family = "Cyclone V",
+		altdpram_component.lpm_type = "altdpram",
+		altdpram_component.outdata_aclr = "OFF",
+		altdpram_component.outdata_reg = "UNREGISTERED",
+		altdpram_component.ram_block_type = "MLAB",
+		altdpram_component.rdaddress_aclr = "OFF",
+		altdpram_component.rdaddress_reg = "UNREGISTERED",
+		altdpram_component.rdcontrol_aclr = "OFF",
+		altdpram_component.rdcontrol_reg = "UNREGISTERED",
+		altdpram_component.read_during_write_mode_mixed_ports = "CONSTRAINED_DONT_CARE",
+		altdpram_component.width = 101,
+		altdpram_component.widthad = l,
+		altdpram_component.width_byteena = 1,
+		altdpram_component.wraddress_aclr = "OFF",
+		altdpram_component.wraddress_reg = "INCLOCK",
+		altdpram_component.wrcontrol_aclr = "OFF",
+		altdpram_component.wrcontrol_reg = "INCLOCK";
+		
+	assign Q = sub_wire0;
 
 endmodule

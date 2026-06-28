@@ -159,14 +159,12 @@ module PS6406B
 	assign SRAM_CE_N = ~(RENDER_SRAM_CYCLE | IO_SPRRAM_CYCLE);
 	
 	//Palette
-	wire [11: 0] PALR_RA = PALETTE_SEL && !RD_N ? A[13:2] : BG_COLOR;
-	wire [11: 0] PALG_RA = PALETTE_SEL && !RD_N ? A[13:2] : BG_COLOR;
-	wire [11: 0] PALB_RA = PALETTE_SEL && !RD_N ? A[13:2] : BG_COLOR;
+	wire [11: 0] PAL_RA = PALETTE_SEL && !RD_N ? A[13:2] : BG_COLOR;
 	wire         PAL_WE = PALETTE_SEL & ~(&WE_N) & WE_N_OLD;
 	bit  [23: 0] PAL_Q;
-	PSH2_PAL_RAM PALR(CLK, A[13:2], DI[15: 8], PAL_WE & ~A[1] & ~WE_N[1] & CE, PALR_RA, PAL_Q[23:16]);
-	PSH2_PAL_RAM PALG(CLK, A[13:2], DI[ 7: 0], PAL_WE & ~A[1] & ~WE_N[0] & CE, PALG_RA, PAL_Q[15: 8]);
-	PSH2_PAL_RAM PALB(CLK, A[13:2], DI[15: 8], PAL_WE &  A[1] & ~WE_N[1] & CE, PALB_RA, PAL_Q[ 7: 0]);
+	PSH2_PAL_RAM PALR(CLK, A[13:2], DI[15: 8], PAL_WE & ~A[1] & ~WE_N[1] & CE, PAL_RA, PAL_Q[23:16]);
+	PSH2_PAL_RAM PALG(CLK, A[13:2], DI[ 7: 0], PAL_WE & ~A[1] & ~WE_N[0] & CE, PAL_RA, PAL_Q[15: 8]);
+	PSH2_PAL_RAM PALB(CLK, A[13:2], DI[15: 8], PAL_WE &  A[1] & ~WE_N[1] & CE, PAL_RA, PAL_Q[ 7: 0]);
 	
 	//Zoom RAM
 	bit  [ 7: 0] SPR_EVAL_ZOOMX,SPR_EVAL_ZOOMY;

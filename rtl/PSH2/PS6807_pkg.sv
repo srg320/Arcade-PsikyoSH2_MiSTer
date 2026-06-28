@@ -35,6 +35,7 @@ package PS6807_PKG;
 	
 	typedef struct packed
 	{
+		bit         SCRN;
 		bit [ 3: 0] H;
 		bit [ 7: 0] Y;
 		bit [ 3: 0] W;
