@@ -194,7 +194,7 @@ module emu
 	// 0         1         2         3          4         5         6   	   7         8         9
 	// 01234567890123456789012345678901 23456789012345678901234567890123 45678901234567890123456789012345
 	// 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
-	// XXXXXXXXXXX     XX               XXXXXX
+	// XXXXXXXXXXXXXX  XXX              XXXXXX
 	
 	`include "build_id.v"
 	localparam CONF_STR = {
@@ -215,6 +215,9 @@ module emu
 	
 		"P1,Audio & Video;",
 		"P1O[2:1],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
+		"P1O[13:11],Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
+		"P1-;",
+	
 		"D1P1O[4:3],Rotate,No,CCW,CW;",
 		"D1P1O[5],Flip 180,Off,On;",
 		"D2P1O[10],Two screen,Off,On;",
@@ -222,6 +225,10 @@ module emu
 		"P1-;",
 		"P1O[9],Audio,Mono,Stereo;",
 		"-;",
+		
+`ifdef DEBUG
+		"O[18],Debug port,Off,On;",
+`endif
 
 		"P2,Debug;",
 		"P2O[37:33],Hsync offs,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,-16,-15,-14,-13,-12,-11,-10,-9,-8,-7,-6,-5,-4,-3,-2,-1;",
@@ -429,7 +436,7 @@ module emu
 				p0 = ~{2'b00,mp1_key};
 				p1 = 8'hFF;
 				p2 = 8'hFF;
-				p3 = ~{1'b0,~dip_sw[6],joystick_0[26],joystick_0[27],3'b000,joystick_0[25]};
+				p3 = ~{joystick_1[27],~dip_sw[6],joystick_0[26],joystick_0[27],1'b0,joystick_1[25],1'b0,joystick_0[25]};
 				
 				if (pA[0]) mp2_key = {joystick_1[23],joystick_1[20],joystick_1[16],joystick_1[12],joystick_1[ 8],joystick_1[4]};
 				if (pA[1]) mp2_key = {joystick_1[24],joystick_1[21],joystick_1[17],joystick_1[13],joystick_1[ 9],joystick_1[5]};
@@ -438,7 +445,7 @@ module emu
 				p4 = ~{2'b00,mp2_key};
 				p5 = 8'hFF;
 				p6 = 8'hFF;
-				p7 = ~{joystick_1[27],~dip_sw[6],joystick_0[26],joystick_0[27],3'b0,joystick_1[25],1'b0,joystick_0[25]};
+				p7 = ~{joystick_1[27],~dip_sw[6],joystick_0[26],joystick_0[27],1'b0,joystick_1[25],1'b0,joystick_0[25]};
 			end else if (BOARD_CONF[5:4] == 2'h2) begin //3 buttons
 				p0 = ~{joystick_0[7],joystick_0[6],joystick_0[5],joystick_0[4],joystick_0[0],joystick_0[1],joystick_0[2],joystick_0[3]};
 				p1 = ~{joystick_1[7],joystick_1[6],joystick_1[5],joystick_1[4],joystick_1[0],joystick_1[1],joystick_1[2],joystick_1[3]};
@@ -826,40 +833,42 @@ module emu
 
 /////////////////////////  Video  /////////////////////////////	
 	wire [1:0] ar = status[2:1];
+	wire [2:0] scale = status[8:6];
+	wire [2:0] sd = status[13:11];
+	wire [2:0] sl = sd ? sd - 1'd1 : 3'd0;
+	wire       scandoubler = (sd || forced_scandoubler);
+	
 	wire [1:0] rotate_sel = status[4:3];
 	wire       rotate_en  = (rotate_sel != 2'd0 & (ps3_board|ps5_board));
 	wire       rotate_ccw = (rotate_sel == 2'd1 & (ps3_board|ps5_board));
 	wire       two_screen = status[10] & ps4_board;
 	wire       flip_180   = status[5] & (ps3_board|ps5_board);
-	wire [2:0] scale = status[8:6];	
 	
+	assign CLK_VIDEO = clk_sys;
 	assign VGA_F1 = 0;
-	assign VGA_SL = '0;
+	assign VGA_SL = sl[1:0];
 
 	reg DCE1,DCE2;
 	always @(posedge clk_sys) begin
-		reg DCLK1_old,DCLK2_old;
+		reg [1:0] DCLK1_old,DCLK2_old;
 		
-		DCLK1_old <= DCLK1;
-		DCE1 <= DCLK1 & ~DCLK1_old;
+		DCLK1_old[1] <= DCLK1_old[0];
+		DCLK1_old[0] <= DCLK1;
+		DCE1 <= ~DCLK1_old[0] & DCLK1_old[1];
 		
-		DCLK2_old <= DCLK2;
-		DCE2 <= DCLK2 & ~DCLK2_old;
+		DCLK2_old[1] <= DCLK2_old[0];
+		DCLK2_old[0] <= DCLK2;
+		DCE2 <= ~DCLK2_old[0] & DCLK2_old[1];
 	end
 	wire ce_pix = (DCE1) | (DCE2 & two_screen);
 
-	assign CLK_VIDEO = clk_sys;
-	assign CE_PIXEL = ce_pix;
-	assign {VGA_R,VGA_G,VGA_B} = {R,G,B};
-	assign VGA_HS = ~HS_N;
-	assign VGA_VS = ~VS_N;
-	wire vga_de = ~(~VBL_N | ~HBL_N);
 	
-	wire [11:0] orig_arx = (!V240 ? (12'd4<<two_screen) : (12'd10<<two_screen));
-	wire [11:0] orig_ary = (!V240 ? 12'd3               : 12'd7);
+	wire [11:0] orig_arx = (V240 ? (12'd4<<two_screen) : (12'd10<<two_screen));
+	wire [11:0] orig_ary = (V240 ? 12'd3               : 12'd7);
 	wire [11:0] arx = (!ar) ? (rotate_en ? orig_ary : orig_arx) : (ar - 1'd1);
 	wire [11:0] ary = (!ar) ? (rotate_en ? orig_arx : orig_ary) : 12'd0;
 	
+	wire vga_de;
 	video_freak video_freak
 	(
 		.CLK_VIDEO(CLK_VIDEO),
@@ -886,7 +895,7 @@ module emu
 	screen_rotate_two screen_rotate_two
 	(
 		.CLK_VIDEO     (CLK_VIDEO),
-		.CE_PIXEL      (CE_PIXEL),
+		.CE_PIXEL      (ce_pix),
 
 		.VGA_R         (VGA_R),
 		.VGA_G         (VGA_G),
@@ -921,27 +930,27 @@ module emu
 		.DDRAM_RD      ()
 	);
 
-//	video_mixer #(.LINE_LENGTH(320), .HALF_DEPTH(0), .GAMMA(1)) video_mixer
-//	(
-//		.*,
-//	
-//		.ce_pix(ce_pix),	
-//		.scandoubler(scandoubler),
-//		.hq2x(hq2x),	
-//		.freeze_sync(),
-//	
-//		.VGA_DE(vga_de),
-//		.R(R),
-//		.G(G),
-//		.B(B),
-//	
-//		// Positive pulses.
-//		.HSync(~HS_N), 
-//		.VSync(~VS_N),  
-//		.HBlank(~HBL_N),
-//		.VBlank(~VBL_N) 
-//	);
-
+	video_mixer #(.LINE_LENGTH(320), .HALF_DEPTH(0), .GAMMA(1)) video_mixer
+	(
+		.*,
+	
+		.ce_pix(ce_pix),	
+		.scandoubler(scandoubler),
+		.hq2x(sd == 3'h1),	
+		.freeze_sync(),
+	
+		.VGA_DE(vga_de),
+		.R(R),
+		.G(G),
+		.B(B),
+	
+		// Positive pulses.
+		.HSync(~HS_N), 
+		.VSync(~VS_N),  
+		.HBlank(~HBL_N),
+		.VBlank(~VBL_N) 
+	);
+	
 	assign AUDIO_MIX = !status[9] ? 2'b11 : 2'b00;
 
 	//debug

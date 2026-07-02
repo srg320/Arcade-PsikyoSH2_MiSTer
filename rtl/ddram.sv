@@ -118,7 +118,7 @@ end
 wire [100:  0] fb_fifo_dout;
 wire           fb_fifo_empty,fb_fifo_full;
 
-ddr_infifo #(3) ramh_fifo (clk, rst_pulse, {fb_addr,fb_we,fb_din}, fb_fifo_wrreq, fb_fifo_rdreq, fb_fifo_dout, fb_fifo_empty, fb_fifo_full);
+ddr_infifo #(4) ramh_fifo (clk, rst_pulse, {fb_addr,fb_we,fb_din}, fb_fifo_wrreq, fb_fifo_rdreq, fb_fifo_dout, fb_fifo_empty, fb_fifo_full);
 
 wire [ 31:  3] fb_write_addr;
 wire [ 63:  0] fb_write_data;
