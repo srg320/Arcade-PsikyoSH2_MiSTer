@@ -78,7 +78,7 @@ module PS6807
 	wire         VREG_SEL  = (A >= (15'h3FE8>>1) && A <= (15'h3FEF>>1) && !CS_N);
 	wire         SREG_SEL  = (A >= (15'h3FF0>>1) && A <= (15'h3FFF>>1) && !CS_N);
 	wire         IO_SPRRAM_SEL = (A >= (15'h0000>>1) && A <= (15'h37FF>>1) && !CS_N);
-	wire         PALETTE_SEL = (A >= (15'h4000>>1) && A <= (15'h5FFF>>1) && !CS_N);
+	wire         IO_PAL_SEL = (A >= (15'h4000>>1) && A <= (15'h5FFF>>1) && !CS_N);
 	wire         IO_GFX_SEL = (A >= (15'h6000>>1) && A <= (15'h7FFF>>1) && !CS_N);
 	
 	bit          WE_N_OLD;
@@ -129,10 +129,10 @@ module PS6807
 					VREG_SEL ? (!A[1] ? VREGS[A[3:2]][31:16] : VREGS[A[3:2]][15:0]) : 
 	            SREG_SEL ? (!A[1] ? SREGS[A[3:2]][31:16] : SREGS[A[3:2]][15:0]) : 
 					IO_SPRRAM_SEL ? IO_SRAM_DO : 
-	            PALETTE_SEL ? (!A[1] ? PAL_Q[23:8] : {PAL_Q[7:0],8'h00}) : 
+	            IO_PAL_SEL ? IO_PAL_DO : 
 					IO_GFX_SEL ? IO_ROM_DO : 
 					'0;
-	assign WAIT_N = ~(IO_SPRRAM_SEL & IO_SPRRAM_WAIT) & ~(IO_GFX_SEL & IO_ROM_WAIT);
+	assign WAIT_N = ~(IO_SPRRAM_SEL & IO_SPRRAM_WAIT) & ~(IO_PAL_SEL & IO_PAL_WAIT) & ~(IO_GFX_SEL & IO_ROM_WAIT);
 	
 	assign IRQ_N = ~VINT_REQ;
 	
@@ -173,8 +173,33 @@ module PS6807
 	assign SRAM_CE_N = ~(RENDER_SRAM_CYCLE | IO_SPRRAM_CYCLE);
 	
 	//Palette
-	wire [10: 0] PAL_RA = PALETTE_SEL && !RD_N ? A[12:2] : BG_COLOR[DOTCLK_DIV[1]];
-	wire         PAL_WE = PALETTE_SEL & ~(&WE_N) & WE_N_OLD;
+	bit  [15: 0] IO_PAL_DO;
+	bit          IO_PAL_WAIT;
+	bit          IO_PAL_CYCLE;
+	always @(posedge CLK or negedge RST_N) begin
+		bit          IO_PAL_SEL_OLD;
+		
+		if (!RST_N) begin
+			IO_PAL_WAIT <= 0;
+			IO_PAL_CYCLE <= 0;
+		end else if (EN) begin
+			IO_PAL_SEL_OLD <= IO_PAL_SEL;
+			if (IO_PAL_SEL && !IO_PAL_SEL_OLD) begin
+				IO_PAL_WAIT <= 1;
+			end
+			if (CE) begin
+				if (!DOTCLK_DIV[0]) IO_PAL_CYCLE <= IO_PAL_WAIT;
+				if (IO_PAL_CYCLE && DOTCLK_DIV[0]) begin
+					IO_PAL_DO <= !A[1] ? PAL_Q[23:8] : {PAL_Q[7:0],8'h00};
+					IO_PAL_CYCLE <= 0;
+					IO_PAL_WAIT <= 0;
+				end
+			end
+		end
+	end
+	
+	wire [10: 0] PAL_RA = DOTCLK_DIV[0] ? A[12:2] : BG_COLOR[DOTCLK_DIV[1]];
+	wire         PAL_WE = DOTCLK_DIV[0] ? IO_PAL_CYCLE & ~(&WE_N) : 1'b0;
 	bit  [23: 0] PAL_Q;
 	PSH2_PAL_RAM PALR(CLK, {1'b0,A[12:2]}, DI[15: 8], PAL_WE & ~A[1] & ~WE_N[1] & CE, {1'b0,PAL_RA}, PAL_Q[23:16]);
 	PSH2_PAL_RAM PALG(CLK, {1'b0,A[12:2]}, DI[ 7: 0], PAL_WE & ~A[1] & ~WE_N[0] & CE, {1'b0,PAL_RA}, PAL_Q[15: 8]);
@@ -215,15 +240,24 @@ module PS6807
 	assign ROM_OE_N = ~(RENDER_ROM_CYCLE | IO_ROM_CYCLE);
 	
 	//Video generator
+	bit          CLK_RES;
+	always @(posedge CLK) begin
+		bit          RST_N_OLD;
+	
+		if (CE) begin
+			RST_N_OLD <= RST_N;
+			CLK_RES <= RST_N & ~RST_N_OLD;
+		end
+	end
+	
 	bit  [ 1: 0] DOTCLK_DIV;
-	always @(posedge CLK or negedge RST_N) begin
-		if (!RST_N) begin
+	always @(posedge CLK) begin
+		if (CLK_RES) begin
 			DOTCLK_DIV <= '0;
 		end else if (CE) begin
 			DOTCLK_DIV <= DOTCLK_DIV + 2'd1;
 		end
 	end
-	assign DOT_CE_F = (DOTCLK_DIV == 1) & CE;
 	assign DOT_CE_R = (DOTCLK_DIV == 3) & CE;
 	
 	wire [ 8: 0] DOT_PER_LINE = 9'd456;
@@ -236,8 +270,8 @@ module PS6807
 	bit          VSYNC;
 	bit          HBLK;
 	bit          VBLK;
-	always @(posedge CLK or negedge RST_N) begin		
-		if (!RST_N) begin
+	always @(posedge CLK) begin		
+		if (CLK_RES) begin
 			HCNT <= '0;
 			VCNT <= '0;
 			HSYNC <= 1;
@@ -453,7 +487,7 @@ module PS6807
 	PSH2_SPRITE_LIST #(11) SPR_EVAL_LIST0(CLK, SPR_LOAD_NUM, SRAM_DI, SPR_LOAD_RUN & SPR_LOAD_STATE == 3'h0+1 & CE, SPR_EVAL_SPRNUM, SPR_EVAL_LIST[63:48]);
 	PSH2_SPRITE_LIST #(11) SPR_EVAL_LIST1(CLK, SPR_LOAD_NUM, SRAM_DI, SPR_LOAD_RUN & SPR_LOAD_STATE == 3'h1+1 & CE, SPR_EVAL_SPRNUM, SPR_EVAL_LIST[47:32]);
 	PSH2_SPRITE_LIST #(11) SPR_EVAL_LIST2(CLK, SPR_LOAD_NUM, SRAM_DI, SPR_LOAD_RUN & SPR_LOAD_STATE == 3'h2+1 & CE, SPR_EVAL_SPRNUM, SPR_EVAL_LIST[31:16]);
-	PSH2_SPRITE_LIST #(11) SPR_EVAL_LIST3(CLK, SPR_LOAD_NUM, SRAM_DI, SPR_LOAD_RUN & SPR_LOAD_STATE == 3'h3+1 & CE, SPR_EVAL_SPRNUM, SPR_EVAL_LIST[15: 0]);	
+	PSH2_SPRITE_LIST #(11) SPR_EVAL_LIST3(CLK, SPR_LOAD_NUM, SRAM_DI, SPR_LOAD_RUN & SPR_LOAD_STATE == 3'h3+1 & CE, SPR_EVAL_SPRNUM, SPR_EVAL_LIST[15: 0]);
 	
 	bit  [15: 0] SPR_EVAL_SCREEN;
 	PSH2_SPRITE_LIST #(11) SPR_EVAL_LIST4(CLK, SPR_LOAD_NUM, {15'h0000,SPR_NUM[13]}, SPR_LOAD_RUN & SPR_LOAD_STATE == 3'h0+1 & CE, SPR_EVAL_SPRNUM, SPR_EVAL_SCREEN);
@@ -711,30 +745,32 @@ module PS6807
 	
 	bit  [23: 0] OUT_RGB[2];
 	always @(posedge CLK or negedge RST_N) begin
-		bit  [23: 0] PAL_Q_LATCH;
+		bit  [23: 0] PAL[2];
 	
 		if (!RST_N) begin
 			OUT_RGB <= '{2{'0}};
 		end else if (EN) begin
-			if (DOT_CE_F) begin
-				PAL_Q_LATCH <= PAL_Q;
+			if (CE) begin
+				case (DOTCLK_DIV)
+					2'b00: PAL[0] <= PAL_Q;
+					2'b10: PAL[1] <= PAL_Q;
+				endcase
 			end
 			
 			if (DOT_CE_R) begin
 				if (SPR_OUT_PIX[0])
-					OUT_RGB[0] <= PAL_Q_LATCH;
+					OUT_RGB[0] <= PAL[0];
 				else
 					OUT_RGB[0] <= SCREEN_BG_COL[0];
 					
 				if (SPR_OUT_PIX[1])
-					OUT_RGB[1] <= PAL_Q;
+					OUT_RGB[1] <= PAL[1];
 				else
 					OUT_RGB[1] <= SCREEN_BG_COL[1];
 			end
 		end
 	end
 	assign {R,G,B} = RGBBright(OUT_RGB[DOTCLK_DIV[1]], 8'h80 - (SCREEN_BRIGHT[DOTCLK_DIV[1]] & 8'h7F));
-
 	
 `ifdef DEBUG
 	assign DBG_REGS = VREGS[0]^VREGS[1]^VREGS[2]^VREGS[3]^SREGS[0]^SREGS[1]^SREGS[2]^SREGS[3];
