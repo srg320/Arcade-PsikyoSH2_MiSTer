@@ -84,10 +84,20 @@ module YMF278B
 	
 	wire         RES_N = IC_N;
 	
+	bit          CLK_RES;
+	always @(posedge CLK) begin
+		bit          RST_N_OLD;
+	
+		if (CE) begin
+			RST_N_OLD <= RST_N;
+			CLK_RES <= RST_N & ~RST_N_OLD;
+		end
+	end
+	
 	bit  [ 1: 0] CLK_DIV;
 	bit  [ 2: 0] CYCLE_NUM;
-	always @(posedge CLK or negedge RST_N) begin
-		if (!RST_N) begin
+	always @(posedge CLK) begin
+		if (CLK_RES) begin
 			CLK_DIV <= '0;
 			CYCLE_NUM <= '0;
 		end

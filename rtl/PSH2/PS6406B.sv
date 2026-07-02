@@ -212,9 +212,19 @@ module PS6406B
 	assign ROM_OE_N = ~(RENDER_ROM_CYCLE | IO_ROM_CYCLE);
 	
 	//Video generator
+	bit          CLK_RES;
+	always @(posedge CLK) begin
+		bit          RST_N_OLD;
+	
+		if (CE) begin
+			RST_N_OLD <= RST_N;
+			CLK_RES <= RST_N & ~RST_N_OLD;
+		end
+	end
+	
 	bit  [ 1: 0] DOTCLK_DIV;
-	always @(posedge CLK or negedge RST_N) begin
-		if (!RST_N) begin
+	always @(posedge CLK) begin
+		if (CLK_RES) begin
 			DOTCLK_DIV <= '0;
 		end else if (CE) begin
 			DOTCLK_DIV <= DOTCLK_DIV + 2'd1;
@@ -232,8 +242,8 @@ module PS6406B
 	bit          VSYNC;
 	bit          HBLK;
 	bit          VBLK;
-	always @(posedge CLK or negedge RST_N) begin		
-		if (!RST_N) begin
+	always @(posedge CLK) begin		
+		if (CLK_RES) begin
 			HCNT <= '0;
 			VCNT <= '0;
 			HSYNC <= 1;
