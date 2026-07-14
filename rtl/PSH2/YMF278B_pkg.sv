@@ -1,3 +1,5 @@
+//license:BSD-3-Clause (PCM engine derived from MAME's ymf278b)
+
 package YMF278B_PKG;
 
 
@@ -31,9 +33,8 @@ package YMF278B_PKG;
 		bit         ALLOW;
 		bit [13: 0] PHASE_FRAC;//Phase fractional
 		bit [15: 0] SO;	//Sample offset
-		bit [21: 0] MOD;	//Modulation
 	} OP3_t;
-	parameter OP3_t OP3_RESET = '{5'h00,1'b0,1'b0,1'b0,1'b0,4'h0,1'b0,14'h0000,16'h0000,22'h000000};
+	parameter OP3_t OP3_RESET = '{5'h00,1'b0,1'b0,1'b0,1'b0,4'h0,1'b0,14'h0000,16'h0000};
 	
 	typedef struct packed
 	{
@@ -41,9 +42,8 @@ package YMF278B_PKG;
 		bit         RST;	//
 		bit         KON;	//
 		bit         KOFF;	//
-		bit [ 5: 0] MODF;	//Modulation fractional
 	} OP4_t;
-	parameter OP4_t OP4_RESET = '{5'h00,1'b0,1'b0,1'b0,6'h00};
+	parameter OP4_t OP4_RESET = '{5'h00,1'b0,1'b0,1'b0};
 	
 	typedef struct packed
 	{
@@ -121,19 +121,6 @@ package YMF278B_PKG;
 		RET = VIB ? $signed($signed(DATA&8'hFE)>>>(~VIB)) : '0;
 		
 		return RET;
-	endfunction
-	
-	function bit [15:0] Interpolate(input bit [15:0] WAVE0, input bit [15:0] WAVE1, bit [5:0] PHASE);
-		bit [ 6:0] PHASE_NEG;
-		bit [21:0] TEMP0,TEMP1;
-		bit [21:0] SUM;
-		
-		PHASE_NEG = 7'h40 - PHASE;
-		TEMP0 = $signed(WAVE0) * PHASE_NEG;
-		TEMP1 = $signed(WAVE1) * PHASE;
-		SUM = $signed(TEMP0) + $signed(TEMP1);
-	
-		return SUM[21:6];
 	endfunction
 		
 	function bit [6:0] EffRateCalc(bit [3:0] RATE, bit [3:0] RC, bit [3:0] OCT, bit FNUM9);
@@ -262,10 +249,10 @@ package YMF278B_PKG;
 		return EncIncTbl[{ERATE,IDX}];
 	endfunction
 	
-	function bit [9:0] LevelAddTLALFO(bit [9:0] LEVEL, bit [9:0] TL, bit [7:0] ALFO);
+	function bit [9:0] LevelAddTLALFO(bit [9:0] LEVEL, bit [8:0] TL, bit [7:0] ALFO);
 		bit [10:0] SUM;
 		
-		SUM = {1'b0,LEVEL} + {1'b0,TL} + {3'b000,ALFO};
+		SUM = {1'b0,LEVEL} + {2'b00,TL} + {3'b000,ALFO};
 		
 		return !SUM[10] ? SUM[9:0] : 10'h3FF;
 	endfunction
@@ -286,7 +273,7 @@ package YMF278B_PKG;
 		
 		S = 4'd0 + PAN;
 		TEMP = $signed($signed(WAVE)>>>{S[2:0],1'b0});
-		return PAN == 4'h8 ? 16'h0000 : PAN[3] ? $signed(TEMP) : WAVE;
+		return PAN == 4'h0 ? WAVE : PAN == 4'h8 ? 16'h0000 : PAN[3] ? WAVE : $signed(TEMP);
 	endfunction
 	
 	function bit signed [15:0] PanRCalc(bit signed [15:0] WAVE, bit [3:0] PAN);
@@ -295,7 +282,7 @@ package YMF278B_PKG;
 		
 		S = 4'd0 - PAN;
 		TEMP = $signed($signed(WAVE)>>>{S[2:0],1'b0});
-		return PAN == 4'h8 ? 16'h0000 : !PAN[3] ? $signed(TEMP) : WAVE;
+		return PAN == 4'h0 ? WAVE : PAN == 4'h8 ? 16'h0000 : !PAN[3] ? WAVE : $signed(TEMP);
 	endfunction
 	
 	function bit signed [15:0] MixCalc(bit signed [15:0] WAVE, bit [2:0] MIX);

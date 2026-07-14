@@ -1,3 +1,5 @@
+//license:BSD-3-Clause (PCM engine derived from MAME's ymf278b)
+
 // synopsys translate_off
 `define SIM
 // synopsys translate_on
@@ -350,7 +352,6 @@ module YMF278B
 				OP3.LOAD_POS <= OP2.LOAD_POS;
 				OP3.ALLOW <= ALLOW;
 				OP3.SO <= OP2.LOAD ? 16'h0000 : CUR_SO;
-//				OP3.MOD <= MDCalc(SOUSX, SOUSY, OP2_SCR4.MDL);
 				OP3.PHASE_FRAC <= OP2.LOAD ? 14'h0000 : CUR_PHASE_FRAC;
 				
 				WD_SA <= OP2_SA;
@@ -373,9 +374,7 @@ module YMF278B
 	bit  [21: 0] WD_SA;
 	bit  [ 1: 0] WD_DATA_LEN;
 	
-	wire [21: 0] MOD_PHASE_CURR = /*OP3.MOD +*/ {16'h0000,OP3.PHASE_FRAC[13:8]};
-	wire [15: 0] MOD_PHASE_INTEGER = MOD_PHASE_CURR[21:6];
-	wire [16: 0] SO_MOD = {1'b0,OP3.SO + (!CYCLE_NUM[2] ? 16'd0 : 16'd1)} /*+ {MOD_PHASE_INTEGER[15],MOD_PHASE_INTEGER}*/;
+	wire [16: 0] SO_MOD = {1'b0,OP3.SO + (!CYCLE_NUM[2] ? 16'd0 : 16'd1)};
 	wire [21: 0] SO_MOD_BY_1 = {{5{SO_MOD[16]}},SO_MOD};
 	wire [21: 0] SO_MOD_BY_1_5 = {{5{SO_MOD[16]}},SO_MOD} + {{6{SO_MOD[16]}},SO_MOD[16:1]};
 	wire [21: 0] SO_MOD_BY_2 = {{4{SO_MOD[16]}},SO_MOD,1'b0};
@@ -405,7 +404,6 @@ module YMF278B
 				OP4.RST <= OP3.RST;
 				OP4.KON <= OP3.KON;
 				OP4.KOFF <= OP3.KOFF;
-				OP4.MODF <= MOD_PHASE_CURR[5:0];
 				OP4_WD <= WD;
 				OP4_DATA_LEN <= WD_DATA_LEN;
 				OP4_SO0_CURR <= SO0_CURR;
