@@ -184,8 +184,7 @@ module emu
 	assign LED_POWER = 0;
 	assign LED_USER  = 0;
 	assign VGA_SCALER = 0;
-	assign HDMI_BLACKOUT = 0;
-	assign FB_FORCE_BLANK = 0;
+	assign HDMI_BLACKOUT = 1;
 
 	///////////////////////////////////////////////////
 	//
@@ -831,7 +830,7 @@ module emu
 	assign ioctl_upload_req = (status[16] && nvram_save_req) || status[17];
 	assign ioctl_din = (ioctl_index == 8'h03) ? eeprom_q : '0;
 
-/////////////////////////  Video  /////////////////////////////	
+/////////////////////////  Video  /////////////////////////////
 	wire [1:0] ar = status[2:1];
 	wire [2:0] scale = status[8:6];
 	wire [2:0] sd = status[13:11];
@@ -841,8 +840,8 @@ module emu
 	wire [1:0] rotate_sel = status[4:3];
 	wire       rotate_en  = (rotate_sel != 2'd0 & (ps3_board|ps5_board));
 	wire       rotate_ccw = (rotate_sel == 2'd1 & (ps3_board|ps5_board));
-	wire       two_screen = status[10] & ps4_board;
 	wire       flip_180   = status[5] & (ps3_board|ps5_board);
+	reg        two_screen;
 	
 	assign CLK_VIDEO = clk_sys;
 	assign VGA_F1 = 0;
@@ -851,6 +850,7 @@ module emu
 	reg DCE1,DCE2;
 	always @(posedge clk_sys) begin
 		reg [1:0] DCLK1_old,DCLK2_old;
+		reg       VBL_N_old;
 		
 		DCLK1_old[1] <= DCLK1_old[0];
 		DCLK1_old[0] <= DCLK1;
@@ -859,9 +859,11 @@ module emu
 		DCLK2_old[1] <= DCLK2_old[0];
 		DCLK2_old[0] <= DCLK2;
 		DCE2 <= ~DCLK2_old[0] & DCLK2_old[1];
+		
+		VBL_N_old <= ~VBL_N;
+		if (!VBL_N && VBL_N_old) two_screen <= status[10] & ps4_board;
 	end
 	wire ce_pix = (DCE1) | (DCE2 & two_screen);
-
 	
 	wire [11:0] orig_arx = (V240 ? (12'd4<<two_screen) : (12'd10<<two_screen));
 	wire [11:0] orig_ary = (V240 ? 12'd3               : 12'd7);
@@ -919,6 +921,7 @@ module emu
 		.FB_STRIDE     (FB_STRIDE),
 		.FB_VBL        (FB_VBL),
 		.FB_LL         (FB_LL),
+		.FB_FORCE_BLANK(FB_FORCE_BLANK),
 
 		.DDRAM_CLK     (),
 		.DDRAM_BUSY    (fb_busy),
@@ -930,7 +933,7 @@ module emu
 		.DDRAM_RD      ()
 	);
 
-	video_mixer #(.LINE_LENGTH(320), .HALF_DEPTH(0), .GAMMA(1)) video_mixer
+	video_mixer #(.LINE_LENGTH(640), .HALF_DEPTH(0), .GAMMA(1)) video_mixer
 	(
 		.*,
 	
@@ -950,7 +953,7 @@ module emu
 		.HBlank(~HBL_N),
 		.VBlank(~VBL_N) 
 	);
-	
+
 	assign AUDIO_MIX = !status[9] ? 2'b11 : 2'b00;
 
 	//debug

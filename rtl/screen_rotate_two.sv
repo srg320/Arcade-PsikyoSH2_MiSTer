@@ -45,6 +45,7 @@ module screen_rotate_two
 	output     [13:0] FB_STRIDE,
 	input             FB_VBL,
 	input             FB_LL,
+	output            FB_FORCE_BLANK,
 
 	output        DDRAM_CLK,
 	input         DDRAM_BUSY,
@@ -72,6 +73,7 @@ assign FB_EN     = fb_en[2];
 assign FB_FORMAT = 5'b00110;
 assign FB_BASE   = {MEM_BASE,o_fb,23'd0};
 assign FB_STRIDE = stride;
+assign FB_FORCE_BLANK = (fb_en[2] ^ fb_en[0]);
 
 function [1:0] buf_next;
 	input [1:0] a,b;
@@ -155,7 +157,7 @@ reg        ram_wr;
 always @(posedge CLK_VIDEO) begin
 	reg [13:0] hcnt = 0;
 	reg old_vs, old_de;
-	reg odd;
+	reg pix_odd;
 
 	ram_wr <= 0;
 	if(CE_PIXEL && FB_EN) begin
@@ -171,19 +173,19 @@ always @(posedge CLK_VIDEO) begin
 		end
 		if(VGA_DE) begin
 			ram_wr <= 1;
-			ram_data <= {8'd0,VGA_B,VGA_G,VGA_R};
-			ram_addr <= next_addr + (do_two_screen && odd ? {hsz>>1,2'b00} : 23'd0);
+			ram_data <= FB_FORCE_BLANK ? 32'h00000000 : {8'd0,VGA_B,VGA_G,VGA_R};
+			ram_addr <= next_addr + (do_two_screen && pix_odd ? {hsz>>1,2'b00} : 23'd0);
 			next_addr <=
-				do_two_screen ? (next_addr + (odd ? {21'd1,2'b00}: 23'd0)) :
+				do_two_screen ? (next_addr + (pix_odd ? {21'd1,2'b00}: 23'd0)) :
 				do_flip       ? next_addr - 3'd4 :
 				rotate_ccw    ? (next_addr - stride) : (next_addr + stride);
-			odd <= ~odd;
+			pix_odd <= ~pix_odd;
 		end
 		if(old_de & ~VGA_DE & ~do_flip) begin
 			next_addr <= do_two_screen ? next_addr + {hsz>>1,2'b00} :
 			             rotate_ccw ? (bufsize - stride + hcnt) : hcnt;
 			hcnt <= rotate_ccw ? (hcnt + 3'd4) : (hcnt - 3'd4);
-			odd <= 0;
+			pix_odd <= 0;
 		end
 	end
 end
