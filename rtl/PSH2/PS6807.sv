@@ -288,7 +288,7 @@ module PS6807
 					
 					VCNT <= VCNT + 9'd1;
 					if (VCNT == 9'h100) begin
-						VCNT <= 9'h1F9;
+						VCNT <= 9'h1FA;
 					end
 					
 					if (VCNT == VBLK_START - 9'd1) begin

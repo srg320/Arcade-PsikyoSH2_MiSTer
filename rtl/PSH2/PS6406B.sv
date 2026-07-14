@@ -232,7 +232,8 @@ module PS6406B
 	end
 	assign DOT_CE_R = (DOTCLK_DIV == 3) & CE;
 	
-	wire [ 8: 0] DOT_PER_LINE = 9'd456;
+	wire [ 8: 0] DOT_BREAK = (REGS[3][7] == 1'b1 ? 9'd443 : 9'd456) - 9'd8;
+	wire [ 8: 0] LINE_BREAK = (REGS[3][7] == 1'b1 ? 9'h0FF : 9'h100);
 	wire [ 8: 0] HSYNC_START = 9'h168 + HS_OFFS;
 	wire [ 8: 0] VBLK_START = REGS[3][7] == 1'b1 ? 9'h0F0 : 9'h0E0;
 	wire [ 8: 0] VSYNC_START = REGS[3][7] == 1'b1 ? 9'd237+9'd16 : 9'd237;
@@ -255,12 +256,13 @@ module PS6406B
 			if (DOT_CE_R) begin
 				VINT_PEND <= 0;
 				HCNT <= HCNT + 9'd1;
-				if (HCNT == DOT_PER_LINE - 1) begin
-					HCNT <= '0;
-					
+				if (HCNT == DOT_BREAK - 1) begin
+					HCNT <= 9'h1F8;
+				end
+				if (HCNT == 9'h1FF) begin
 					VCNT <= VCNT + 9'd1;
-					if (VCNT == 9'h100) begin
-						VCNT <= 9'h1F9;
+					if (VCNT == LINE_BREAK) begin
+						VCNT <= 9'h1FA;
 					end
 					
 					if (VCNT == VBLK_START - 9'd1) begin
@@ -274,10 +276,10 @@ module PS6406B
 					VINT_PEND <= 1;
 				end
 				
-				if (HCNT == DOT_PER_LINE - 1 && VCNT == VSYNC_START - 9'd1) begin
+				if (HCNT == 9'h1FF && VCNT == VSYNC_START - 9'd1) begin
 					VSYNC <= 1;
 				end
-				if (HCNT == DOT_PER_LINE - 1 && VCNT == VSYNC_START + 9'd3 - 1) begin
+				if (HCNT == 9'h1FF && VCNT == VSYNC_START + 9'd3 - 1) begin
 					VSYNC <= 0;
 				end
 				
@@ -291,7 +293,7 @@ module PS6406B
 				if (HCNT == 9'd320 - 1) begin
 					HBLK <= 1;
 				end
-				if (HCNT == DOT_PER_LINE - 1) begin
+				if (HCNT == 9'h1FF) begin
 					HBLK <= 0;
 				end
 			end
@@ -314,7 +316,7 @@ module PS6406B
 		end else if (EN) begin
 			if (DOT_CE_R) begin
 				BG_DISP_X <= BG_DISP_X + 9'd1;
-				if (HCNT == 9'h1C5) begin
+				if (HCNT == 9'h1FD) begin
 					BG_DISP_X <= '0;
 				end
 				
@@ -359,10 +361,10 @@ module PS6406B
 			SPR_LOAD_PEND <= 0;
 		end else if (EN) begin
 			if (DOT_CE_R) begin
-				if (HCNT == 9'd456 - 1 && VCNT == 9'h1FF) begin
+				if (HCNT == 9'h1FF && VCNT == 9'h1FF) begin
 					SPR_LOAD_DONE <= 0;
 				end
-				if (HCNT == 9'd456 - 1 && VCNT == VBLK_START && !SPR_LOAD_DONE) begin
+				if (HCNT == 9'h1FF && VCNT == VBLK_START && !SPR_LOAD_DONE) begin
 					SPR_LOAD_PEND <= 1;
 				end
 			end
@@ -771,7 +773,7 @@ module PS6406B
 				default: {BGRAM_SLOT,BGRAM_N} <= {BGRAM_EMPTY,2'h0};
 			endcase
 		end
-		else if (HCNT >= 9'h1C4 || HCNT <= 9'h13F) begin
+		else if (HCNT >= 9'h1FC || HCNT <= 9'h13F) begin
 			if (BG_EN[0] && BG_LINE_EN[0] && {HCNT[0:0],DOTCLK_DIV[1]} == {1'h0,1'b0} && BG_X[0][3:0] ==? 4'b111?) {BGRAM_SLOT,BGRAM_N} <= {BGRAM_TILE,2'h0};
 			if (BG_EN[1] && BG_LINE_EN[1] && {HCNT[0:0],DOTCLK_DIV[1]} == {1'h0,1'b1} && BG_X[1][3:0] ==? 4'b111?) {BGRAM_SLOT,BGRAM_N} <= {BGRAM_TILE,2'h1};
 			if (BG_EN[2] && BG_LINE_EN[2] && {HCNT[0:0],DOTCLK_DIV[1]} == {1'h1,1'b0} && BG_X[2][3:0] ==? 4'b111?) {BGRAM_SLOT,BGRAM_N} <= {BGRAM_TILE,2'h2};
@@ -826,7 +828,7 @@ module PS6406B
 			BG_X_INC[3] = {9'h001,BG_PARAM[3].ATTR.ZOOM};
 			
 			if (DOT_CE_R) begin;
-				if (HCNT >= 9'h1C5 || HCNT <= 9'h13F) begin
+				if (HCNT >= 9'h1FF || HCNT <= 9'h13F) begin
 					{BG_X[0],BG_X_FRAC[0]} <= {BG_X[0],BG_X_FRAC[0]} + BG_X_INC[0];
 					{BG_X[1],BG_X_FRAC[1]} <= {BG_X[1],BG_X_FRAC[1]} + BG_X_INC[1];
 					{BG_X[2],BG_X_FRAC[2]} <= {BG_X[2],BG_X_FRAC[2]} + BG_X_INC[2];
@@ -879,7 +881,7 @@ module PS6406B
 				default: ;
 			endcase
 		end
-		else if (HCNT >= 9'h1C4 || HCNT <= 9'h13f) begin
+		else if (HCNT >= 9'h1FC || HCNT <= 9'h13F) begin
 			if (BG_EN[0] && BG_LINE_EN[0] && HCNT[1:0] == 2'h0) begin BGROM_ACCESS0[0] <= 1; end
 			if (BG_EN[1] && BG_LINE_EN[1] && HCNT[1:0] == 2'h1) begin BGROM_ACCESS0[1] <= 1; end
 			if (BG_EN[2] && BG_LINE_EN[2] && HCNT[1:0] == 2'h2) begin BGROM_ACCESS0[2] <= 1; end
@@ -979,10 +981,10 @@ module PS6406B
 				end
 				
 `ifdef DEBUG
-				if (HCNT == 9'h1C6 && VCNT == 9'h06D) begin
+				if (HCNT == 9'h1FE && VCNT == 9'h06D) begin
 					DBG_BG_ROM_X2 <= BG_ROM_X[2];
 				end
-				if (HCNT == 9'h1C7 && VCNT == 9'h06D) begin
+				if (HCNT == 9'h1FF && VCNT == 9'h06D) begin
 					DBG_ROM_ADDR2 <= DBG_ROM_ADDR;
 				end
 				if (HCNT == 9'h000 && VCNT == 9'h06E && BG_FETCH_ACCESS[2]) begin
@@ -1000,25 +1002,25 @@ module PS6406B
 		if (!RST_N) begin
 		end else if (EN) begin
 			if (DOT_CE_R) begin				
-				if ((HCNT >= 9'h16D && HCNT <= 9'h1C3 && BG_FETCH_ACCESS2[0]) || (HCNT <= 9'h13F && HCNT[1:0] == 2'b01)) begin
+				if ((HCNT >= 9'h16D && HCNT <= 9'h17F && BG_FETCH_ACCESS2[0]) || (HCNT <= 9'h13F && HCNT[1:0] == 2'b01)) begin
 					{BG_PIX_ROW[0][0],BG_PIX_ROW[0][1],BG_PIX_ROW[0][2],BG_PIX_ROW[0][3]} <= {BG_PIX_ROW[0][4],BG_PIX_ROW[0][5],BG_PIX_ROW[0][6],BG_PIX_ROW[0][7]};
 					{BG_PIX_ROW[0][4],BG_PIX_ROW[0][5],BG_PIX_ROW[0][6],BG_PIX_ROW[0][7]} <= BG_FETCH_DATA2[0];
 					BG_PIX_PAL[0][0] <= BG_PIX_PAL[0][1];
 					BG_PIX_PAL[0][1] <= BG_FETCH_PAL2[0];
 				end
-				if ((HCNT >= 9'h16D && HCNT <= 9'h1C3 && BG_FETCH_ACCESS2[1]) || (HCNT <= 9'h13F && HCNT[1:0] == 2'b01)) begin
+				if ((HCNT >= 9'h16D && HCNT <= 9'h17F && BG_FETCH_ACCESS2[1]) || (HCNT <= 9'h13F && HCNT[1:0] == 2'b01)) begin
 					{BG_PIX_ROW[1][0],BG_PIX_ROW[1][1],BG_PIX_ROW[1][2],BG_PIX_ROW[1][3]} <= {BG_PIX_ROW[1][4],BG_PIX_ROW[1][5],BG_PIX_ROW[1][6],BG_PIX_ROW[1][7]};
 					{BG_PIX_ROW[1][4],BG_PIX_ROW[1][5],BG_PIX_ROW[1][6],BG_PIX_ROW[1][7]} <= BG_FETCH_DATA2[1];
 					BG_PIX_PAL[1][0] <= BG_PIX_PAL[1][1];
 					BG_PIX_PAL[1][1] <= BG_FETCH_PAL2[1];
 				end
-				if ((HCNT >= 9'h16D && HCNT <= 9'h1C3 && BG_FETCH_ACCESS2[2]) || (HCNT <= 9'h13F && HCNT[1:0] == 2'b01)) begin
+				if ((HCNT >= 9'h16D && HCNT <= 9'h17F && BG_FETCH_ACCESS2[2]) || (HCNT <= 9'h13F && HCNT[1:0] == 2'b01)) begin
 					{BG_PIX_ROW[2][0],BG_PIX_ROW[2][1],BG_PIX_ROW[2][2],BG_PIX_ROW[2][3]} <= {BG_PIX_ROW[2][4],BG_PIX_ROW[2][5],BG_PIX_ROW[2][6],BG_PIX_ROW[2][7]};
 					{BG_PIX_ROW[2][4],BG_PIX_ROW[2][5],BG_PIX_ROW[2][6],BG_PIX_ROW[2][7]} <= BG_FETCH_DATA2[2];
 					BG_PIX_PAL[2][0] <= BG_PIX_PAL[2][1];
 					BG_PIX_PAL[2][1] <= BG_FETCH_PAL2[2];
 				end
-				if ((HCNT >= 9'h16D && HCNT <= 9'h1C3 && BG_FETCH_ACCESS2[3]) || (HCNT <= 9'h13F && HCNT[1:0] == 2'b01)) begin
+				if ((HCNT >= 9'h16D && HCNT <= 9'h17F && BG_FETCH_ACCESS2[3]) || (HCNT <= 9'h13F && HCNT[1:0] == 2'b01)) begin
 					{BG_PIX_ROW[3][0],BG_PIX_ROW[3][1],BG_PIX_ROW[3][2],BG_PIX_ROW[3][3]} <= {BG_PIX_ROW[3][4],BG_PIX_ROW[3][5],BG_PIX_ROW[3][6],BG_PIX_ROW[3][7]};
 					{BG_PIX_ROW[3][4],BG_PIX_ROW[3][5],BG_PIX_ROW[3][6],BG_PIX_ROW[3][7]} <= BG_FETCH_DATA2[3];
 					BG_PIX_PAL[3][0] <= BG_PIX_PAL[3][1];
