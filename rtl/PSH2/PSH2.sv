@@ -472,7 +472,7 @@ module PSH2
 		if (VER <= 2'h1) begin
 			case (CPU_A[2:0])
 				3'h0: IO_DO <= P0;
-				3'h1: IO_DO <= P2;
+				3'h1: IO_DO <= P1;
 				3'h2: IO_DO <= P2;
 				3'h3: IO_DO <= P3;
 				3'h4: IO_DO <= EEP_IN;
