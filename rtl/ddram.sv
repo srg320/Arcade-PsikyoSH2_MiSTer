@@ -41,6 +41,13 @@ module ddram
 	output [63: 0] rom_dout,
 	input          rom_rd,
 	output         rom_busy,
+	
+	input  [19: 0] hsram_addr,
+	output [ 7: 0] hsram_dout,
+	input  [ 7: 0] hsram_din,
+	input          hsram_rd,
+	input          hsram_wr,
+	output         hsram_busy,
 
 	input  [31: 3] fb_addr,
 	input  [63: 0] fb_din,
@@ -81,12 +88,17 @@ reg            bios_write_busy;
 
 reg            rom_read_busy;
 
-//reg  [ 31:  3] fb_write_addr;
-//reg  [ 63:  0] fb_write_data;
-//reg  [  7:  0] fb_be;
-//reg            fb_write_busy;
+reg  [ 19:  0] hsram_rcache_addr,hsram_write_addr;
+reg  [  7:  0] hsram_write_data;
+reg            hsram_write_busy;
+reg            hsram_rcache_dirty;
+reg            hsram_rcache_busy;
+reg            hsram_read_busy;
 
-reg  [  2:  0] state = 0;
+reg  [  2:  0] state;
+initial begin
+	state <= 0;
+end
 
 reg  [  6:  0] cache_wraddr;
 reg            cache_update;
@@ -97,6 +109,7 @@ reg            prom_rd_old;
 reg            drom_rd_old;
 reg            bios_wr_old;
 reg            rom_rd_old;
+reg            hsram_rd_old,hsram_wr_old;
 reg            fb_we_old;
 always @(posedge clk) begin
 	{dram_rd_old,dram_wr_old} <= {dram_rd,|dram_wr};
@@ -104,6 +117,7 @@ always @(posedge clk) begin
 	drom_rd_old <= drom_rd;
 	bios_wr_old <= |bios_wr;
 	rom_rd_old <= rom_rd;
+	{hsram_rd_old,hsram_wr_old} <= {hsram_rd,hsram_wr};
 	fb_we_old <= |fb_we;
 	old_rst <= rst;
 end
@@ -112,13 +126,13 @@ wire           rst_pulse = (rst && !old_rst);
 wire           fb_fifo_wrreq,fb_fifo_rdreq;
 always_comb begin
 	fb_fifo_wrreq = (|fb_we && !fb_we_old);
-	fb_fifo_rdreq = (state == 3'h1 && !DDRAM_BUSY && ram_chan == 4'd5);
+	fb_fifo_rdreq = (state == 3'h1 && !DDRAM_BUSY && ram_chan == 4'd6);
 end
 
 wire [100:  0] fb_fifo_dout;
 wire           fb_fifo_empty,fb_fifo_full;
 
-ddr_infifo #(4) ramh_fifo (clk, rst_pulse, {fb_addr,fb_we,fb_din}, fb_fifo_wrreq, fb_fifo_rdreq, fb_fifo_dout, fb_fifo_empty, fb_fifo_full);
+ddr_infifo #(4) fb_fifo (clk, rst_pulse, {fb_addr,fb_we,fb_din}, fb_fifo_wrreq, fb_fifo_rdreq, fb_fifo_dout, fb_fifo_empty, fb_fifo_full);
 
 wire [ 31:  3] fb_write_addr;
 wire [ 63:  0] fb_write_data;
@@ -131,9 +145,11 @@ always @(posedge clk) begin
 	bit [3:0] chan;
 	bit [6:0] word_cnt;
 
-	{dram_rcache_busy,prom_rcache_busy,drom_rcache_busy} <= '0;
+	{dram_rcache_busy,prom_rcache_busy,drom_rcache_busy,hsram_rcache_busy} <= '0;
 	if (rst_pulse) begin		
-		{dram_rcache_dirty,prom_rcache_dirty,drom_rcache_dirty} <= '1;
+		{dram_read_busy,prom_read_busy,drom_read_busy,rom_read_busy,hsram_read_busy} <= '0;
+		{dram_write_busy,bios_write_busy,hsram_write_busy} <= '0;
+		{dram_rcache_dirty,prom_rcache_dirty,drom_rcache_dirty,hsram_rcache_dirty} <= '1;
 	end
 	else begin
 		if (dram_rd && !dram_rd_old) begin
@@ -166,6 +182,15 @@ always @(posedge clk) begin
 		if (rom_rd && !rom_rd_old) begin
 			rom_read_busy <= 1;
 		end
+		
+		if (hsram_rd && !hsram_rd_old) begin
+			if (hsram_addr[19:5] != hsram_rcache_addr[19:5] || hsram_rcache_dirty) begin
+				hsram_read_busy <= 1;
+			end
+			hsram_rcache_addr <= hsram_addr;
+			hsram_rcache_busy <= 1;
+			hsram_rcache_dirty <= 0; 
+		end
 	end
 		
 	if (rst_pulse) begin
@@ -189,12 +214,14 @@ always @(posedge clk) begin
 			bios_write_busy <= 1;	
 		end
 		
-//		if (|fb_we && !fb_we_old) begin
-//			fb_write_addr <= fb_addr;
-//			fb_write_data <= fb_din;
-//			fb_be <= fb_we;
-//			fb_write_busy <= 1;	
-//		end
+		if (hsram_wr && !hsram_wr_old) begin
+			if (hsram_addr[19:5] == hsram_rcache_addr[19:5]) begin
+				hsram_rcache_dirty <= 1;
+			end
+			hsram_write_addr <= hsram_addr;
+			hsram_write_data <= hsram_din;
+			hsram_write_busy <= 1;
+		end
 	end
 	
 	if (rst_pulse) begin
@@ -276,6 +303,26 @@ always @(posedge clk) begin
 					word_cnt    <= '0;
 					state       <= 3'h2;
 				end
+				else if (hsram_write_busy) begin
+					hsram_write_busy <= 0;
+					ram_address <= {5'b00110,7'b1001111,hsram_write_addr[19:3]};
+					ram_din		<= {8{hsram_write_data}};
+					ram_be      <= 8'h80>>hsram_write_addr[2:0];
+					ram_write 	<= 1;
+					ram_burst   <= 1;
+					ram_chan    <= 4'd5;
+					state       <= 3'h1;
+				end
+				else if (hsram_read_busy) begin
+					ram_address <= {5'b00110,7'b1001111,hsram_rcache_addr[19:5],2'b00};
+					ram_be      <= 8'hFF;
+					ram_read    <= 1;
+					ram_burst   <= 4;
+					ram_chan    <= 4'd5;
+					cache_wraddr<= '0;
+					word_cnt    <= '0;
+					state       <= 3'h2;
+				end
 				else if (!fb_fifo_empty) begin
 //					fb_write_busy <= 0;
 					ram_address <= fb_write_addr;
@@ -283,7 +330,7 @@ always @(posedge clk) begin
 					ram_be      <= fb_write_be;
 					ram_write 	<= 1;
 					ram_burst   <= 1;
-					ram_chan    <= 4'd5;
+					ram_chan    <= 4'd6;
 					state       <= 3'h1;
 				end
 			end
@@ -300,6 +347,7 @@ always @(posedge clk) begin
 					if (ram_chan == 4'd1 ) begin prom_read_busy <= 0; prom_rcache_busy <= 1; end
 					if (ram_chan == 4'd2 ) begin drom_read_busy <= 0; drom_rcache_busy <= 1; end
 					if (ram_chan == 4'd4 ) begin rom_read_busy <= 0; rom_dout <= DDRAM_DOUT; end
+					if (ram_chan == 4'd5 ) begin hsram_read_busy <= 0; hsram_rcache_busy <= 1; end
 					state <= 0;
 				end
 			end
@@ -308,11 +356,12 @@ always @(posedge clk) begin
 end
 
 wire           cache_wren = (state == 3'h2) && DDRAM_DOUT_READY && !DDRAM_BUSY;
-wire [ 63:  0] dram_cache_q,prom_cache_q,drom_cache_q;
+wire [ 63:  0] dram_cache_q,prom_cache_q,drom_cache_q,hsram_cache_q;
 
 ddr_cache_ram #(2) cache0 (clk, cache_wraddr[1:0], DDRAM_DOUT, cache_wren & ram_chan == 0, dram_addr[4:3], dram_cache_q);
 ddr_cache_ram #(2) cache1 (clk, cache_wraddr[1:0], DDRAM_DOUT, cache_wren & ram_chan == 1, prom_addr[4:3], prom_cache_q);
 ddr_cache_ram #(2) cache2 (clk, cache_wraddr[1:0], DDRAM_DOUT, cache_wren & ram_chan == 2, drom_addr[4:3], drom_cache_q);
+ddr_cache_ram #(2) cache5 (clk, cache_wraddr[1:0], DDRAM_DOUT, cache_wren & ram_chan == 5, hsram_addr[4:3], hsram_cache_q);
 
 always_comb begin
 	case (dram_rcache_addr[2])
@@ -336,6 +385,18 @@ always_comb begin
 	drom_busy = drom_read_busy | drom_rcache_busy;
 	
 	rom_busy = rom_read_busy;
+	
+	case (hsram_rcache_addr[2:0])
+		3'b000: hsram_dout = hsram_cache_q[63:56];
+		3'b001: hsram_dout = hsram_cache_q[55:48];
+		3'b010: hsram_dout = hsram_cache_q[47:40];
+		3'b011: hsram_dout = hsram_cache_q[39:32];
+		3'b100: hsram_dout = hsram_cache_q[31:24];
+		3'b101: hsram_dout = hsram_cache_q[23:16];
+		3'b110: hsram_dout = hsram_cache_q[15:08];
+		3'b111: hsram_dout = hsram_cache_q[07:00];
+	endcase
+	hsram_busy = hsram_write_busy | hsram_read_busy | hsram_rcache_busy;
 	
 	fb_busy = fb_fifo_full;
 end
