@@ -58,7 +58,7 @@ module PSH2
 	input      [ 7: 0] P5,
 	input      [ 7: 0] P6,
 	input      [ 7: 0] P7,
-	output reg [ 7: 0] PA,
+	output reg [ 7: 0] PA_O,
 	input      [ 7: 0] JP4,
 	
 	input      [ 1: 0] VER,		//0-PS3,1-PS5,2-PS4
@@ -438,7 +438,7 @@ module PSH2
 		if (!RST_N) begin
 			PS35_EEP_DATA <= '1;
 			PS4_YMF_BANK <= '0;
-			PA <= '0;
+			PA_O <= '0;
 		end else if (EN) begin
 			if (SYS_CE_R) begin
 				CPU_WE0_N_OLD <= CPU_WE_N[0];
@@ -447,7 +447,7 @@ module PSH2
 						4'h4: PS35_EEP_DATA <= CPU_DO[7:0];
 						4'h8: PS4_YMF_BANK[15:8] <= CPU_DO[7:0];
 						4'h9: PS4_YMF_BANK[7:0] <= CPU_DO[7:0];
-						4'hA: PA <= CPU_DO[7:0];
+						4'hA: PA_O <= CPU_DO[7:0];
 						default:;
 					endcase
 				end

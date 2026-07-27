@@ -248,7 +248,7 @@ module emu
 	wire         ioctl_upload_req;
 	wire         ioctl_wr,ioctl_rd;
 	wire [ 25:0] ioctl_addr;
-	wire [ 15:0] ioctl_data,ioctl_din;
+	wire [  7:0] ioctl_data,ioctl_din;
 	wire [  7:0] ioctl_index;
 	reg          ioctl_wait = 0;
 	
@@ -278,7 +278,7 @@ module emu
 	wire [ 21:0] gamma_bus;
 	wire [ 15:0] sdram_sz;
 	
-	hps_io #(.CONF_STR(CONF_STR), .WIDE(1)) hps_io
+	hps_io #(.CONF_STR(CONF_STR)) hps_io
 	(
 		.clk_sys(clk_sys),
 		.HPS_BUS(HPS_BUS),
@@ -306,7 +306,7 @@ module emu
 		.ioctl_index(ioctl_index),
 		.ioctl_upload(ioctl_upload),
 		.ioctl_upload_req(ioctl_upload_req),
-		.ioctl_upload_index(8'h03),
+		.ioctl_upload_index(8'h04),
 		.ioctl_addr(ioctl_addr),
 		.ioctl_dout(ioctl_data),
 		.ioctl_din(ioctl_din),
@@ -340,11 +340,12 @@ module emu
 	
 	assign menumask = {~ps4_board, ~(ps3_board|ps5_board), 1'b0};
 	
-	wire cart_download = ioctl_download & (ioctl_index[5:2] == 4'b0000 && ioctl_index[1:0] == 2'h0);
-	wire bios_download = ioctl_download & (ioctl_index[5:2] == 4'b0000 && ioctl_index[1:0] == 2'h1);
-	wire conf_download = ioctl_download & (ioctl_index[5:2] == 4'b0000 && ioctl_index[1:0] == 2'h2);
-	wire nvram_download = ioctl_download & (ioctl_index[5:2] == 4'b0000 && ioctl_index[1:0] == 2'h3);
-	wire nvram_upload = ioctl_upload & (ioctl_index[5:2] == 4'b0000 && ioctl_index[1:0] == 2'h3);
+	wire cart_download = ioctl_download & (ioctl_index[5:0] == 6'h0);
+	wire bios_download = ioctl_download & (ioctl_index[5:0] == 6'h1);
+	wire conf_download = ioctl_download & (ioctl_index[5:0] == 6'h2);
+	wire hsconf_download = ioctl_download & (ioctl_index[5:0] == 6'h3);
+	wire nvram_download = ioctl_download & (ioctl_index[5:0] == 6'h4);
+	wire nvram_upload = ioctl_upload & (ioctl_index[5:0] == 6'h4);
 	
 	reg osd_btn = 0;
 
@@ -378,7 +379,8 @@ module emu
 	wire rst_sys = reset | download | rst_ram | loader_rst;
 	
 	//[1:0] - ver: 0-PS3,1-PS5,2-PS4
-	//[5:4] - input mode: 1,2,3,4 buttons; 1 button,mahjong panel,3,4 buttons
+	//[5:4] - input mode: 1,2,3,4 buttons
+	//[6] - input mode: mahjong panel
 	reg  [7:0] BOARD_CONF = 8'h00;
 	always @(posedge clk_sys) begin
 		if (conf_download && ioctl_wr && ioctl_addr[8:0] == 9'h000) begin
@@ -395,57 +397,64 @@ module emu
 			dip_sw <= ioctl_data[7:0];
 	end
 	
-	wire [7:0] p0,p1,p2,p3,p4,p5,p6,p7,pA;
+	wire [7:0] p0,p1,p2,p3,p4,p5,p6,p7,pA_o;
 	always_comb begin
 		reg [5:0] mp1_key,mp2_key;
 	
 		{mp1_key,mp2_key} = '0;
 		{p0,p1,p2,p3,p4,p5,p6,p7} = '1;
 		if (ps3_board || ps5_board) begin	//PS3/PS5
-			if (BOARD_CONF[5:4] == 2'h0) begin
+			if (BOARD_CONF[6:4] == 3'h0) begin
 				p0 = ~{joystick_0[3],joystick_0[2],joystick_0[0],joystick_0[1],joystick_0[4],2'b00,joystick_0[5]};
 				p1 = ~{joystick_1[3],joystick_1[2],joystick_1[0],joystick_1[1],joystick_1[4],2'b00,joystick_1[5]};
 				p2 = 8'hFF;
 				p3 = ~{1'b0,~dip_sw[6],joystick_0[7],joystick_0[8],2'b11,joystick_1[6],joystick_0[6]};
-			end else if (BOARD_CONF[5:4] == 2'h1) begin
+			end
+			else if (BOARD_CONF[6:4] == 3'h1) begin
 				p0 = ~{joystick_0[3],joystick_0[2],joystick_0[0],joystick_0[1],joystick_0[4],joystick_0[5],1'b0,joystick_0[6]};
 				p1 = ~{joystick_1[3],joystick_1[2],joystick_1[0],joystick_1[1],joystick_1[4],joystick_1[5],1'b0,joystick_1[6]};
 				p2 = 8'hFF;
 				p3 = ~{1'b0,~dip_sw[6],joystick_0[8],joystick_0[9],2'b11,joystick_1[7],joystick_0[7]};
-			end else if (BOARD_CONF[5:4] == 2'h2) begin
+			end
+			else if (BOARD_CONF[6:4] == 3'h2) begin
 				p0 = ~{joystick_0[3],joystick_0[2],joystick_0[0],joystick_0[1],joystick_0[4],joystick_0[5],joystick_0[6],joystick_0[7]};
 				p1 = ~{joystick_1[3],joystick_1[2],joystick_1[0],joystick_1[1],joystick_1[4],joystick_1[5],joystick_1[6],joystick_1[7]};
 				p2 = 8'hFF;
 				p3 = ~{1'b0,~dip_sw[6],joystick_0[9],joystick_0[10],2'b11,joystick_1[8],joystick_0[8]};
-			end else begin
+			end
+			else if (BOARD_CONF[6:4] == 3'h3) begin
 				p0 = ~{joystick_0[3],joystick_0[2],joystick_0[0],joystick_0[1],joystick_0[4],joystick_0[5],1'b0,joystick_0[8]};
 				p1 = ~{joystick_1[3],joystick_1[2],joystick_1[0],joystick_1[1],joystick_1[4],joystick_1[5],1'b0,joystick_1[8]};
 				p2 = ~{joystick_0[6],joystick_0[7],2'b00,joystick_1[6],joystick_1[7],2'b00};
 				p3 = ~{1'b0,~dip_sw[6],joystick_0[10],joystick_0[11],2'b11,joystick_1[9],joystick_0[9]};
 			end
+			else if (BOARD_CONF[6:4] == 3'h4) begin //mahjong panel
+				if      (joystick_0[ 4]) {p0,p1} = ~16'h8080;
+				else if (joystick_0[ 5]) {p0,p1} = ~16'h8040;
+				else if (joystick_0[ 6]) {p0,p1} = ~16'h8010;
+				else if (joystick_0[ 7]) {p0,p1} = ~16'h8020;
+				else if (joystick_0[ 8]) {p0,p1} = ~16'h4080;
+				else if (joystick_0[ 9]) {p0,p1} = ~16'h4040;
+				else if (joystick_0[10]) {p0,p1} = ~16'h4010;
+				else if (joystick_0[11]) {p0,p1} = ~16'h4020;
+				else if (joystick_0[12]) {p0,p1} = ~16'h1080;
+				else if (joystick_0[13]) {p0,p1} = ~16'h1040;
+				else if (joystick_0[14]) {p0,p1} = ~16'h1010;
+				else if (joystick_0[15]) {p0,p1} = ~16'h1020;
+				else if (joystick_0[16]) {p0,p1} = ~16'h2080;
+				else if (joystick_0[17]) {p0,p1} = ~16'h2040;
+				else if (joystick_0[18]) {p0,p1} = ~16'h0880;
+				else if (joystick_0[19]) {p0,p1} = ~16'h2020;
+				else if (joystick_0[20]) {p0,p1} = ~16'h2010;
+				else if (joystick_0[21]) {p0,p1} = ~16'h0840;
+				else if (joystick_0[22]) {p0,p1} = ~16'h0810;
+				else if (joystick_0[23]) {p0,p1} = ~16'h0480;
+				else {p0,p1} = ~16'h0000;
+				p3 = ~{1'b0,~dip_sw[6],joystick_0[25],joystick_0[26],2'b11,joystick_1[24],joystick_0[24]};
+			end
 		end
-		else begin	//PS4
-			if (BOARD_CONF[5:4] == 2'h0) begin //1 button
-				
-			end else if (BOARD_CONF[5:4] == 2'h1) begin //mahjong panel
-				if (pA[0]) mp1_key = {joystick_0[23],joystick_0[20],joystick_0[16],joystick_0[12],joystick_0[ 8],joystick_0[4]};
-				if (pA[1]) mp1_key = {joystick_0[24],joystick_0[21],joystick_0[17],joystick_0[13],joystick_0[ 9],joystick_0[5]};
-				if (pA[2]) mp1_key = {1'b0          ,joystick_0[22],joystick_0[18],joystick_0[14],joystick_0[10],joystick_0[6]};
-				if (pA[3]) mp1_key = {1'b0          ,1'b0          ,joystick_0[19],joystick_0[15],joystick_0[11],joystick_0[7]};
-				p0 = ~{2'b00,mp1_key};
-				p1 = 8'hFF;
-				p2 = 8'hFF;
-				p3 = ~{joystick_1[27],~dip_sw[6],joystick_0[26],joystick_0[27],1'b0,joystick_1[25],1'b0,joystick_0[25]};
-				
-				if (pA[0]) mp2_key = {joystick_1[23],joystick_1[20],joystick_1[16],joystick_1[12],joystick_1[ 8],joystick_1[4]};
-				if (pA[1]) mp2_key = {joystick_1[24],joystick_1[21],joystick_1[17],joystick_1[13],joystick_1[ 9],joystick_1[5]};
-				if (pA[2]) mp2_key = {1'b0          ,joystick_1[22],joystick_1[18],joystick_1[14],joystick_1[10],joystick_1[6]};
-				if (pA[3]) mp2_key = {1'b0          ,1'b0          ,joystick_1[19],joystick_1[15],joystick_1[11],joystick_1[7]};
-				p4 = ~{2'b00,mp2_key};
-				p5 = 8'hFF;
-				p6 = 8'hFF;
-				p7 = ~{joystick_1[27],~dip_sw[6],joystick_0[26],joystick_0[27],1'b0,joystick_1[25],1'b0,joystick_0[25]};
-			end else if (BOARD_CONF[5:4] == 2'h2) begin //3 buttons
+		else begin	//PS4 
+			if (BOARD_CONF[6:4] == 3'h2) begin //3 buttons
 				p0 = ~{joystick_0[7],joystick_0[6],joystick_0[5],joystick_0[4],joystick_0[0],joystick_0[1],joystick_0[2],joystick_0[3]};
 				p1 = ~{joystick_1[7],joystick_1[6],joystick_1[5],joystick_1[4],joystick_1[0],joystick_1[1],joystick_1[2],joystick_1[3]};
 				p2 = 8'hFF;
@@ -455,7 +464,8 @@ module emu
 				p5 = ~{joystick_3[7],joystick_3[6],joystick_3[5],joystick_3[4],joystick_3[0],joystick_3[1],joystick_3[2],joystick_3[3]};
 				p6 = 8'hFF;
 				p7 = 8'hFF;
-			end else begin //4 buttons
+			end
+			else if (BOARD_CONF[6:4] == 3'h3) begin //4 buttons
 				p0 = ~{joystick_0[8],3'b000,joystick_0[7],joystick_0[6],joystick_0[5],joystick_0[4]};
 				p1 = ~{joystick_1[8],3'b000,joystick_1[7],joystick_1[6],joystick_1[5],joystick_1[4]};
 				p2 = 8'hFF;
@@ -465,6 +475,25 @@ module emu
 				p5 = ~{joystick_3[8],3'b000,joystick_3[7],joystick_3[6],joystick_3[5],joystick_3[4]};
 				p6 = 8'hFF;
 				p7 = ~{joystick_3[11]|joystick_2[11],~dip_sw[6],joystick_0[10],joystick_1[11]|joystick_1[11],joystick_3[9],joystick_2[9],joystick_1[9],joystick_0[9]};
+			end
+			else if (BOARD_CONF[6:4] == 3'h4) begin //mahjong panel
+				if (pA_o[0]) mp1_key = {joystick_0[23],joystick_0[20],joystick_0[16],joystick_0[12],joystick_0[ 8],joystick_0[4]};
+				if (pA_o[1]) mp1_key = {joystick_0[24],joystick_0[21],joystick_0[17],joystick_0[13],joystick_0[ 9],joystick_0[5]};
+				if (pA_o[2]) mp1_key = {1'b0          ,joystick_0[22],joystick_0[18],joystick_0[14],joystick_0[10],joystick_0[6]};
+				if (pA_o[3]) mp1_key = {1'b0          ,1'b0          ,joystick_0[19],joystick_0[15],joystick_0[11],joystick_0[7]};
+				p0 = ~{2'b00,mp1_key};
+				p1 = 8'hFF;
+				p2 = 8'hFF;
+				p3 = ~{joystick_1[27],~dip_sw[6],joystick_0[26],joystick_0[27],1'b0,joystick_1[25],1'b0,joystick_0[25]};
+				
+				if (pA_o[0]) mp2_key = {joystick_1[23],joystick_1[20],joystick_1[16],joystick_1[12],joystick_1[ 8],joystick_1[4]};
+				if (pA_o[1]) mp2_key = {joystick_1[24],joystick_1[21],joystick_1[17],joystick_1[13],joystick_1[ 9],joystick_1[5]};
+				if (pA_o[2]) mp2_key = {1'b0          ,joystick_1[22],joystick_1[18],joystick_1[14],joystick_1[10],joystick_1[6]};
+				if (pA_o[3]) mp2_key = {1'b0          ,1'b0          ,joystick_1[19],joystick_1[15],joystick_1[11],joystick_1[7]};
+				p4 = ~{2'b00,mp2_key};
+				p5 = 8'hFF;
+				p6 = 8'hFF;
+				p7 = ~{joystick_1[27],~dip_sw[6],joystick_0[26],joystick_0[27],1'b0,joystick_1[25],1'b0,joystick_0[25]};
 			end
 		end
 	end
@@ -566,7 +595,7 @@ module emu
 		.P5(p5),
 		.P6(p6),
 		.P7(p7),
-		.PA(pA),
+		.PA_O(pA_o),
 		.JP4({4'h0,dip_sw[3:0]}),
 		
 		.VER(BOARD_CONF[1:0]),
@@ -608,10 +637,10 @@ module emu
 		.clk(clk_ram),
 		.init(status[0]),
 		.init_done(sdr_rdy),
-		.sync(loader_state != 0 ? sdr_rom_wr : DCLK1),
+		.sync(loader_exec ? sdr_rom_wr : DCLK1),
 	
 		.waddr(sdr_rom_addr),
-		.wr  (loader_state != 0),
+		.wr  (loader_exec),
 		.din (sdr_rom_data),
 		
 		.raddr1(GFX_ROM_A[23:0]),
@@ -628,6 +657,7 @@ module emu
 
 	//Prog/Data ROM, DRAM
 	reg  [ 3: 0] loader_state = 0;
+	reg          loader_exec = 0;
 	reg  [26: 3] ddr_rom_addr;
 	reg  [63: 0] ddr_rom_do;
 	reg          ddr_rom_rd;
@@ -639,11 +669,9 @@ module emu
 	reg  [15: 0] eeprom_data;
 	reg          eeprom_wr;
 	always @(posedge clk_sys) begin		
-		reg nvram_load_ckip = 0;
+		reg nvram_load_skip = 0;
 		
-		ioctl_wait <= (bios_download && bios_busy);
-		
-		if (conf_download || status[0]) begin
+		if (reset) begin
 			ddr_rom_addr <= '0;
 			ddr_rom_rd <= 0;
 			sdr_rom_addr <= '0;
@@ -651,6 +679,7 @@ module emu
 			eeprom_addr <= '0;
 			eeprom_wr <= 0;
 			loader_state = 4'd1;
+			loader_exec <= 0;
 			loader_rst <= 1;
 		end
 		else if (sdr_rdy) begin
@@ -658,10 +687,13 @@ module emu
 			sdr_rom_wr <= 0;
 			eeprom_wr <= 0;
 			case (loader_state)
-				4'd0: ;
+				4'd0: begin
+					loader_exec <= 0;
+				end
 				
 				4'd1: begin
 					ddr_rom_rd <= 1;
+					loader_exec <= 1;
 					loader_state = 4'd2;
 				end
 				
@@ -680,7 +712,7 @@ module emu
 				4'd9: begin
 					sdr_rom_addr <= sdr_rom_addr + 1'd1;
 					if (ddr_rom_addr == (ps4_board ? (27'h4800000>>3) : (27'h4000000>>3))) begin
-						if (nvram_load_ckip) begin
+						if (nvram_load_skip) begin
 							loader_state = 4'd0; 
 							loader_rst <= 0;
 						end else begin
@@ -741,12 +773,13 @@ module emu
 			
 		end
 		
-		if (nvram_download & ioctl_wr) nvram_load_ckip <= 1;
+		if (nvram_download & ioctl_wr) nvram_load_skip <= 1;
 	end
 	
-	wire [15:0] drom_do;
-	wire [31:0] dram_do,prom_do;
-	wire        dram_busy,prom_busy,drom_busy,bios_busy;
+	wire [15: 0] drom_do;
+	wire [31: 0] dram_do,prom_do;
+	wire [ 7: 0] hsram_do;
+	wire         dram_busy,prom_busy,drom_busy,bios_busy,hsram_busy;
 	ddram ddram
 	(
 		.*,
@@ -775,7 +808,7 @@ module emu
 	
 		//PROG/DATA ROM load
 		.bios_addr(ioctl_addr[20:1]),
-		.bios_din ({ioctl_data[7:0],ioctl_data[15:8]}),
+		.bios_din ({ioctl_data[7:0],ioctl_data[7:0]}),
 		.bios_wr  ({2{bios_download & ioctl_wr}}),
 		.bios_busy(bios_busy),
 	
@@ -784,6 +817,14 @@ module emu
 		.rom_rd  (ddr_rom_rd),
 		.rom_dout(ddr_rom_do),
 		.rom_busy(ddr_rom_busy),
+		
+		//hiscore RAM
+		.hsram_addr(hs_ram_addr[19:0]),
+		.hsram_din (hs_data_in),
+		.hsram_wr  (hs_ram_write),
+		.hsram_rd  (hs_ram_read),
+		.hsram_dout(hsram_do),
+		.hsram_busy(hsram_busy),
 	
 		//FB
 		.fb_addr(fb_addr),
@@ -797,9 +838,210 @@ module emu
 	assign MEM_WAIT_N = !DRAM_CE_N ? ~dram_busy : 
 							  !PROM_CE_N ? ~prom_busy : ~drom_busy;
 	
-	//NVRAM
-	wire [15: 0] eeprom_q;
-	dpram_dif #(8,8,7,16,"rtl/eeprom.mif") eeprom
+	
+	//NVRAM/HiScore
+	reg  [19: 0] hs_ram_addr;
+	reg  [ 7: 0] hs_data_in;
+	reg          hs_ram_write,hs_ram_read;
+	reg  [ 7: 0] hs_ram_data_addr;
+	reg  [ 0: 0] hs_ram_data_block;
+	reg          hs_ram_data_wr;
+	reg  [ 8: 0] hs_load_data_addr,hs_load_data_pos;
+	reg          hs_load_data_wr;
+	wire [25: 0] hs_load_addr = ioctl_addr - 26'h100;
+		
+	reg  [31: 0] HS_START_ADDR[2],HS_END_ADDR[2];
+	reg  [15: 0] HS_LEN[2];
+	reg  [ 7: 0] HS_START_DATA[2],HS_END_DATA[2];
+	reg          HS_ENABLE = 1'b0;
+	reg          HS_LAST_NUM;
+	reg          HS_LOADED[2],HS_UPLOADED[2];
+	reg  [ 1: 0] HS_MATCH[2];
+	reg  [ 0: 0] HS_NUM;
+	always @(posedge clk_sys) begin
+		reg hsconf_download_old,nvram_download_old,nvram_upload_old,hs_start_cond_old;
+		reg [3:0] hs_state = 0;
+		reg [7:0] DRAM_DO_BYTES[4];
+		
+		nvram_download_old <= nvram_download;
+		nvram_upload_old <= nvram_upload;
+		
+		//ram transfer
+		hs_start_cond_old <= hs_start_cond;
+		case (hs_state)
+			4'd0: begin
+				ioctl_wait <= 0;
+			end
+			
+			4'd1: begin
+				hs_ram_addr <= HS_START_ADDR[0][19:0];
+				{hs_ram_data_block,hs_ram_data_addr} <= 9'h000;
+				hs_state <= 4'd2;
+			end
+			
+			4'd2: begin
+				hs_ram_write <= 1;
+				hs_state <= 4'd3;
+			end
+			
+			4'd3: begin
+				hs_ram_write <= 0;
+				if (!hs_ram_write && !hsram_busy) begin
+					hs_state <= 4'd4;
+				end
+			end
+			
+			4'd4: begin
+				hs_ram_write <= 0;
+				if (!hs_ram_write && !hsram_busy) begin
+					if (hs_ram_addr == HS_END_ADDR[hs_ram_data_block][19:0]) begin
+						if (hs_ram_data_block == HS_NUM) begin
+							hs_state <= 4'd0;//idle
+						end else begin
+							hs_ram_addr <= HS_START_ADDR[hs_ram_data_block+1'd1][19:0];
+							hs_ram_data_block <= hs_ram_data_block + 1'd1;
+							hs_ram_data_addr <= '0;
+							hs_state <= 4'd2;
+						end
+					end else begin
+						hs_ram_addr <= hs_ram_addr + 1'd1;
+						hs_ram_data_addr <= hs_ram_data_addr + 8'd1;
+						hs_state <= 4'd2;
+					end
+				end
+			end
+			
+			//
+			4'd5: begin
+				hs_ram_addr <= HS_START_ADDR[0][19:0];
+				{hs_ram_data_block,hs_ram_data_addr} <= 9'h000;
+				hs_state <= 4'd6;
+			end
+			
+			4'd6: begin
+				hs_ram_read <= 1;
+				hs_state <= 4'd7;
+			end
+			
+			4'd7: begin
+				hs_ram_read <= 0;
+				if (!hs_ram_read && !hsram_busy) begin
+					hs_ram_data_wr <= 1;
+					hs_state <= 4'd8;
+				end
+			end
+			
+			4'd8: begin
+				hs_ram_data_wr <= 0;
+				if (hs_ram_addr == HS_END_ADDR[hs_ram_data_block][19:0]) begin
+					if (hs_ram_data_block == HS_NUM) begin
+						hs_state <= 4'd0;//idle
+					end else begin
+						hs_ram_addr <= HS_START_ADDR[hs_ram_data_block+1'd1][19:0];
+						hs_ram_data_block <= hs_ram_data_block + 1'd1;
+						hs_ram_data_addr <= '0;
+						hs_state <= 4'd6;
+					end
+				end else begin
+					hs_ram_addr <= hs_ram_addr + 1'd1;
+					hs_ram_data_addr <= hs_ram_data_addr + 8'd1;
+					hs_state <= 4'd6;
+				end
+			end
+		endcase
+		if (hs_start_cond && !hs_start_cond_old) begin
+			hs_state <= 4'd1;
+		end
+		if (nvram_upload && !nvram_upload_old) begin
+			if (HS_ENABLE && &HS_MATCH[0] && &HS_MATCH[HS_LAST_NUM]) begin
+				hs_state <= 4'd5;
+				ioctl_wait <= 1;
+			end
+		end
+		
+		//load the save data
+		hs_load_data_wr <= 0;
+		if (nvram_download && !nvram_download_old) begin
+			hs_load_data_pos <= 9'h000;
+		end
+		if (nvram_download && !hs_load_addr[24] && ioctl_wr) begin
+			hs_load_data_pos <= hs_load_data_pos + 9'd1;
+			if (!HS_LOADED[0]) begin
+				hs_load_data_addr <= hs_load_data_pos;
+				hs_load_data_wr <= 1;
+				if (hs_load_addr[15:0] == (HS_LEN[0] - 1)) begin
+					HS_LOADED[0] <= 1;
+					hs_load_data_pos <= 9'h100;
+				end
+			end
+			else if (!HS_LOADED[1] && HS_LAST_NUM) begin
+				hs_load_data_addr <= hs_load_data_pos;
+				hs_load_data_wr <= 1;
+				if (hs_load_addr[15:0] == (HS_LEN[1] + HS_LEN[0] - 1)) HS_LOADED[1] <= 1;
+			end
+		end
+		
+		if (nvram_upload && !nvram_upload_old) begin
+			hs_load_data_pos <= 9'h000;
+			HS_UPLOADED <= '{2{1'b0}};
+		end
+		if (nvram_upload && !hs_load_addr[24] && ioctl_rd) begin
+			hs_load_data_pos <= hs_load_data_pos + 9'd1;
+			if (!HS_UPLOADED[0]) begin
+				hs_load_data_addr <= hs_load_data_pos;
+				if (hs_load_addr[15:0] == (HS_LEN[0] - 1)) begin
+					HS_UPLOADED[0] <= 1;
+					hs_load_data_pos <= 9'h100;
+				end
+			end
+			else if (!HS_UPLOADED[1] && HS_LAST_NUM) begin
+				hs_load_data_addr <= hs_load_data_pos;
+				if (hs_load_addr[15:0] == (HS_LEN[1] + HS_LEN[0] - 1)) HS_UPLOADED[1] <= 1;
+			end
+		end
+		
+		//load config
+		hsconf_download_old <= hsconf_download;
+		if (hsconf_download && !hsconf_download_old) begin
+			HS_ENABLE <= 1'b0;
+			HS_LAST_NUM <= 0;
+			HS_LOADED <= '{2{1'b0}};
+			HS_MATCH <= '{2{2'b00}};
+		end
+		if (hsconf_download && ioctl_wr) begin
+			HS_NUM = ioctl_addr[3:3];
+			case (ioctl_addr[2:0])
+				3'h0: HS_START_ADDR[HS_NUM][31:24] <= ioctl_data[7:0];
+				3'h1: HS_START_ADDR[HS_NUM][23:16] <= ioctl_data[7:0];
+				3'h2: HS_START_ADDR[HS_NUM][15: 8] <= ioctl_data[7:0];
+				3'h3: HS_START_ADDR[HS_NUM][ 7: 0] <= ioctl_data[7:0];
+				3'h4: HS_LEN[HS_NUM][15: 8] <= ioctl_data[7:0];
+				3'h5: HS_LEN[HS_NUM][ 7: 0] <= ioctl_data[7:0];
+				3'h6: HS_START_DATA[HS_NUM] <= ioctl_data[7:0];
+				3'h7: HS_END_DATA[HS_NUM] <= ioctl_data[7:0]; 
+			endcase
+			if (ioctl_addr[2:0] == 3'h7) begin
+				HS_END_ADDR[HS_NUM] <= HS_START_ADDR[HS_NUM] + HS_LEN[HS_NUM] - 32'd1;
+				HS_ENABLE <= 1;
+				HS_LAST_NUM <= HS_NUM;
+			end
+		end
+		
+		DRAM_DO_BYTES = '{DRAM_DO[31:24],DRAM_DO[23:16],DRAM_DO[15: 8],DRAM_DO[ 7: 0]};
+		if (!DRAM_CE_N && !(&DRAM_WE_N)) begin
+			for (int i=0;i<2;i++) begin
+				if (DRAM_A == HS_START_ADDR[i][19:2] && DRAM_WE_N[~HS_START_ADDR[i][1:0]] == 1'b0 && DRAM_DO_BYTES[HS_START_ADDR[i][1:0]] == HS_START_DATA[i]) HS_MATCH[i][0] <= 1;
+				if (DRAM_A == HS_END_ADDR[i][19:2]   && DRAM_WE_N[~HS_END_ADDR[i][1:0]]   == 1'b0 && DRAM_DO_BYTES[HS_END_ADDR[i][1:0]]   == HS_END_DATA[i]  ) HS_MATCH[i][1] <= 1;
+			end
+		end
+	end
+	wire hs_start_cond = HS_ENABLE && HS_LOADED[0] && &HS_MATCH[0] && HS_LOADED[HS_LAST_NUM] && &HS_MATCH[HS_LAST_NUM];
+	
+	wire hs_dram_hit0 = (DRAM_A[19:2] >= HS_START_ADDR[0][19:2] && DRAM_A[19:2] <= HS_END_ADDR[0][19:2]);
+	wire hs_dram_hit1 = (DRAM_A[19:2] >= HS_START_ADDR[1][19:2] && DRAM_A[19:2] <= HS_END_ADDR[1][19:2]);
+	
+	wire [ 7: 0] eeprom_q;
+	dpram_dif #(8,8,8,8," ") eeprom
 	(
 		.clock(clk_sys),
 
@@ -808,12 +1050,39 @@ module emu
 		.wren_a(EEP_MEM_WREN),
 		.q_a(EEP_MEM_Q),
 
-		.address_b(nvram_download || nvram_upload ? ioctl_addr[7:1] : eeprom_addr),
-		.data_b(nvram_download || nvram_upload ? ioctl_data : eeprom_data),
-		.wren_b(nvram_download || nvram_upload ? ioctl_wr : eeprom_wr),
+		.address_b(nvram_download || nvram_upload ? ioctl_addr[7:0] : eeprom_addr),
+		.data_b(nvram_download ? ioctl_data : eeprom_data),
+		.wren_b(nvram_download ? hs_load_addr[24] & ioctl_wr : eeprom_wr),
 		.q_b(eeprom_q)
 	);
 	
+	wire dram_we = ~DRAM_CE_N & ~&DRAM_WE_N;
+	reg dram_we_old;	
+	reg hs_match_delayed[4];	
+	always @(posedge clk_sys) begin
+		dram_we_old <= dram_we;
+		hs_match_delayed[0] <= HS_ENABLE && &HS_MATCH[0] && &HS_MATCH[HS_LAST_NUM];
+		hs_match_delayed[1] <= hs_match_delayed[0];
+		hs_match_delayed[2] <= hs_match_delayed[1];
+		hs_match_delayed[3] <= hs_match_delayed[2];
+	end
+	
+	wire [ 7: 0] hs_load_q;
+	dpram #(9,8) hsbuf
+	(
+		.clock(clk_sys),
+
+		.address_a({hs_ram_data_block,hs_ram_data_addr}),
+		.data_a(hsram_do),
+		.wren_a(hs_ram_data_wr),
+		.q_a(hs_data_in),
+
+		.address_b(hs_load_data_addr),
+		.data_b(ioctl_data),
+		.wren_b(hs_load_data_wr),
+		.q_b(hs_load_q)
+	);
+
 	reg nvram_save_req;	
 	always @(posedge clk_sys) begin
 		if (reset) begin
@@ -821,14 +1090,15 @@ module emu
 		end else begin
 			if (nvram_upload) begin
 				nvram_save_req <= 0;
-			end else if (EEP_MEM_WREN) begin
+			end else if (EEP_MEM_WREN || (dram_we && dram_we_old && (hs_dram_hit0 || hs_dram_hit1) && hs_match_delayed[3])) begin
 				nvram_save_req <= 1;
 			end
 		end
 	end
-
+	
 	assign ioctl_upload_req = (status[16] && nvram_save_req) || status[17];
-	assign ioctl_din = (ioctl_index == 8'h03) ? eeprom_q : '0;
+	assign ioctl_din = (ioctl_index == 8'h04) ? (ioctl_addr < 25'h100 ? eeprom_q : hs_load_q) : 
+															  '0;
 
 /////////////////////////  Video  /////////////////////////////
 	wire [1:0] ar = status[2:1];
