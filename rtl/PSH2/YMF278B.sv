@@ -266,11 +266,11 @@ module YMF278B
 	
 	bit  [ 2:0] KEY_RAM_D;
 	bit  [ 2:0] KEY_RAM_Q;
-	OPL4_KEY_RAM KEY_RAM(CLK, OP2.SLOT, KEY_RAM_D, SLOT1_CE, SLOT, KEY_RAM_Q);
+	OPL4_CH_RAM #(5,3) KEY_RAM(CLK, OP2.SLOT, KEY_RAM_D, SLOT1_CE, SLOT, KEY_RAM_Q);
 	
 	bit  [21:0] LFO_RAM_D;
 	bit  [21:0] LFO_RAM_Q;
-	OPL4_LFO_RAM LFO_RAM(CLK, OP2.SLOT, LFO_RAM_D, SLOT1_CE, LFO_RA, LFO_RAM_Q);
+	OPL4_CH_RAM #(5,22) LFO_RAM(CLK, OP2.SLOT, LFO_RAM_D, SLOT1_CE, LFO_RA, LFO_RAM_Q);
 
 	
 	//Operation 2: MD read, ADP
@@ -284,10 +284,10 @@ module YMF278B
 		bit  [ 8: 0] PHASE_INT;	//New phase integer
 		bit  [13: 0] PHASE_FRAC;	//New phase fractional
 		bit  [13: 0] CUR_PHASE_FRAC;//Current phase fractional
+		bit          CUR_PHASE_OVF;
 		bit  [15: 0] CUR_SO;		//Sample offset integer
 		bit  [15: 0] NEXT_SO;
 		bit  [15: 0] NEW_SAO;
-		bit          COMP;
 		bit          ALLOW;
 		
 		if (!RST_N) begin
@@ -317,6 +317,7 @@ module YMF278B
 			end
 		
 			CUR_SO = OP2.KON ? '0 : SO_RAM_Q;
+			{CUR_PHASE_OVF,CUR_PHASE_FRAC} = OP2.KON ? '0 : PHASE_FRAC_RAM_Q;
 			
 			//Phase accum
 			if (OP2.RST || OP2.LOAD)
@@ -325,7 +326,6 @@ module YMF278B
 				{PHASE_INT,PHASE_FRAC} = {9'b000000000,CUR_PHASE_FRAC} + OP2.PHASE;
 			NEXT_SO = CUR_SO + {7'b0000000,PHASE_INT};
 			
-			CUR_PHASE_FRAC = OP2.KON ? '0 : PHASE_FRAC_RAM_Q;
 						
 			ALLOW = 1;
 			if (SLOT1_CE) begin
@@ -352,29 +352,30 @@ module YMF278B
 				OP3.LOAD_POS <= OP2.LOAD_POS;
 				OP3.ALLOW <= ALLOW;
 				OP3.SO <= OP2.LOAD ? 16'h0000 : CUR_SO;
+				OP3.PHASE_OVF <= OP2.LOAD ? 1'b0 : CUR_PHASE_OVF;
 				OP3.PHASE_FRAC <= OP2.LOAD ? 14'h0000 : CUR_PHASE_FRAC;
 				
 				WD_SA <= OP2_SA;
 				WD_DATA_LEN <= OP2_DATA_BIT;
 				WD_READ <= ALLOW | OP2.LOAD;
 				
-				PHASE_FRAC_RAM_D <= ALLOW ? PHASE_FRAC : '0;
+				PHASE_FRAC_RAM_D <= ALLOW ? {|PHASE_INT,PHASE_FRAC} : '0;
 			end
 		end
 	end
 	bit [15:0] SO_RAM_D;
 	bit [15:0] SO_RAM_Q;
-	OPL4_SO_RAM SO_RAM(CLK, OP3.SLOT, SO_RAM_D, SLOT1_CE, OP2.SLOT, SO_RAM_Q);
+	OPL4_CH_RAM #(5,16) SO_RAM(CLK, OP3.SLOT, SO_RAM_D, SLOT1_CE, OP2.SLOT, SO_RAM_Q);
 	
-	bit  [13:0] PHASE_FRAC_RAM_D;
-	bit  [13:0] PHASE_FRAC_RAM_Q;
-	OPL4_PHASE_RAM PHASE_FRAC_RAM(CLK, OP3.SLOT, PHASE_FRAC_RAM_D, SLOT1_CE, OP2.SLOT, PHASE_FRAC_RAM_Q);
+	bit  [14:0] PHASE_FRAC_RAM_D;
+	bit  [14:0] PHASE_FRAC_RAM_Q;
+	OPL4_CH_RAM #(5,15) PHASE_FRAC_RAM(CLK, OP3.SLOT, PHASE_FRAC_RAM_D, SLOT1_CE, OP2.SLOT, PHASE_FRAC_RAM_Q);
 	
-	//Operation 3:  
+	//Operation 3: Wave data read
 	bit  [21: 0] WD_SA;
 	bit  [ 1: 0] WD_DATA_LEN;
 	
-	wire [16: 0] SO_MOD = {1'b0,OP3.SO + (!CYCLE_NUM[2] ? 16'd0 : 16'd1)};
+	wire [16: 0] SO_MOD = {1'b0,OP3.SO /*+ (!CYCLE_NUM[2] ? 16'd0 : 16'd1)*/};
 	wire [21: 0] SO_MOD_BY_1 = {{5{SO_MOD[16]}},SO_MOD};
 	wire [21: 0] SO_MOD_BY_1_5 = {{5{SO_MOD[16]}},SO_MOD} + {{6{SO_MOD[16]}},SO_MOD[16:1]};
 	wire [21: 0] SO_MOD_BY_2 = {{4{SO_MOD[16]}},SO_MOD,1'b0};
@@ -382,41 +383,41 @@ module YMF278B
 	assign WD_ADDR = WD_SA + WD_OFFS + (!CYCLE_NUM[1] ? 16'd0 : 16'd1);
 	
 	always @(posedge CLK or negedge RST_N) begin
-		bit  [15: 0] WD;
-		bit          SO0_CURR,SO0_NEXT;
+		bit  [15: 0] TEMP;
+		bit  [15: 0] CURR_WD;
 		
 		if (!RST_N) begin
 			OP4 <= OP4_RESET;
-			OP4_WD <= '0;
 		end else if (!RES_N) begin
 			OP4 <= OP4_RESET;
-			OP4_WD <= '0;
 		end else begin
 			if (CYCLE1_CE) begin
 				case (CYCLE_NUM[2:1])
-					2'h1: begin WD[15:8] <= MEM_D; SO0_CURR <= SO_MOD[0]; end
-					2'h2: WD[7:0] <= MEM_D;
+					2'h1: TEMP[15:8] <= MEM_D;
+					2'h2: TEMP[ 7:0] <= MEM_D;
 				endcase
 			end
 			
+			CURR_WD = WD_DATA_LEN == 2'b00 ? {TEMP[15:8],8'h00} : 
+				       WD_DATA_LEN == 2'b01 ? (!SO_MOD[0] ? {TEMP[15:8],TEMP[7:4],4'h0} : {TEMP[7:0],TEMP[11:8],4'h0}) : 
+							                     TEMP;
 			if (SLOT1_CE) begin
 				OP4.SLOT <= OP3.SLOT;
 				OP4.RST <= OP3.RST;
 				OP4.KON <= OP3.KON;
 				OP4.KOFF <= OP3.KOFF;
-				OP4_WD <= WD;
-				OP4_DATA_LEN <= WD_DATA_LEN;
-				OP4_SO0_CURR <= SO0_CURR;
-				OP4_SO0_NEXT <= SO0_NEXT;
+				OP4.MODF <= OP3.PHASE_FRAC[13:8];
+				OP4.PHASE_OVF <= OP3.PHASE_OVF;
+				OP4.WD <= CURR_WD;
 			end
 		end
-	end
+	end	
+	
+	bit [15:0] PREV_WAVE_RAM0_Q,PREV_WAVE_RAM1_Q;
+	OPL4_CH_RAM #(5,16) PWD_RAM0(CLK, OP4.SLOT, OP4.WD          , OP4.PHASE_OVF & SLOT1_CE, OP4.SLOT, PREV_WAVE_RAM0_Q);
+	OPL4_CH_RAM #(5,16) PWD_RAM1(CLK, OP4.SLOT, PREV_WAVE_RAM0_Q, OP4.PHASE_OVF & SLOT1_CE, OP4.SLOT, PREV_WAVE_RAM1_Q);
 	
 	//Operation 4: Interpolation, EG, ALFO
-	bit  [15: 0] OP4_WD;
-	bit  [ 1: 0] OP4_DATA_LEN;
-	bit          OP4_SO0_CURR,OP4_SO0_NEXT;
-	
 	bit  [ 3: 0] OP4_AR,OP4_D1R,OP4_D2R,OP4_RR,OP4_RC,OP4_DL;
 	bit  [ 3: 0] OP4_OCT;
 	bit          OP4_FNUM9;
@@ -467,6 +468,7 @@ module YMF278B
 		bit  [10: 0] ATTACK_VOL_CALC,DECAY_VOL_CALC;
 		bit  [ 9: 0] NEW_EVOL;
 		bit  [ 1: 0] NEW_EST;
+		bit  [15: 0] PWD;
 		
 		if (!RST_N) begin
 			OP5 <= OP5_RESET;
@@ -492,6 +494,9 @@ module YMF278B
 						OP4_LFO_DATA <= LFO_RAM_Q[7:0];
 					end
 				endcase
+			end
+			if (CYCLE1_CE) begin
+				PWD <= OP4.PHASE_OVF ? PREV_WAVE_RAM0_Q : PREV_WAVE_RAM1_Q; 
 			end
 			
 `ifdef DEBUG
@@ -577,17 +582,14 @@ module YMF278B
 				OP5.KOFF <= OP4.KOFF;
 				OP5.EVOL <= NEW_EVOL;
 				
-				OP5.WD <= OP4_DATA_LEN == 2'b00 ? {OP4_WD[15:8],8'h00} : 
-				          OP4_DATA_LEN == 2'b01 ? (!OP4_SO0_CURR ? {OP4_WD[15:8],OP4_WD[7:4],4'h0} : {OP4_WD[7:0],OP4_WD[11:8],4'h0}) : 
-							                         OP4_WD;
-				
+				OP5.WD <= Interpolate(PWD, OP4.WD, OP4.MODF);
 				OP5.ALFO <= AMCalc(OP4_LFO_DATA, OP4_AM);
 			end
 		end
 	end
 	bit [11:0] EVOL_RAM_D;
 	bit [11:0] EVOL_RAM_Q;
-	OPL4_EVOL_RAM EVOL_RAM(CLK, OP5.SLOT, EVOL_RAM_D, SLOT1_CE, EVOL_RA, EVOL_RAM_Q);
+	OPL4_CH_RAM #(5,12) EVOL_RAM(CLK, OP5.SLOT, EVOL_RAM_D, SLOT1_CE, EVOL_RA, EVOL_RAM_Q);
 
 	//Operation 5: Level calculation
 	bit  [ 6: 0] OP5_TL;
@@ -633,7 +635,7 @@ module YMF278B
 	end
 	bit [16:0] TL_RAM_D;
 	bit [16:0] TL_RAM_Q;
-	OPL4_TL_RAM TL_RAM(CLK, OP6.SLOT, TL_RAM_D, SLOT1_CE, OP5.SLOT, TL_RAM_Q);
+	OPL4_CH_RAM #(5,17) TL_RAM(CLK, OP6.SLOT, TL_RAM_D, SLOT1_CE, OP5.SLOT, TL_RAM_Q);
 
 	//Operation 6: Level calculation
 	always @(posedge CLK or negedge RST_N) begin		
@@ -676,7 +678,10 @@ module YMF278B
 			end
 			
 			S = OP7.SLOT;
-			TEMP = !OP7_CH ? OP7.SD : '0;
+			if ((SND_EN[0] && S[4:3] == 2'b00) || (SND_EN[1] && S[4:3] == 2'b01) || (SND_EN[2] && S[4:3] == 2'b10))
+				TEMP = !OP7_CH ? OP7.SD : '0;
+			else
+				TEMP = '0;
 			PAN_L = PanLCalc(TEMP,OP7_PAN);
 			PAN_R = PanRCalc(TEMP,OP7_PAN);
 			
@@ -708,8 +713,8 @@ module YMF278B
 			
 		end else begin
 			if (OP7.SLOT == 5'd0 && CYCLE_NUM[2:1] == 2'b00 && CYCLE1_CE) begin
-				PCM_L <= (!SND_EN[2] ? 16'h0000 : TrimWave(ACC_L));
-				PCM_R <= (!SND_EN[2] ? 16'h0000 : TrimWave(ACC_R));
+				PCM_L <= (/*!SND_EN[2] ? 16'h0000 :*/ TrimWave(ACC_L));
+				PCM_R <= (/*!SND_EN[2] ? 16'h0000 :*/ TrimWave(ACC_R));
 			end
 		end
 	end
@@ -972,68 +977,36 @@ module YMF278B
 	
 endmodule
 
-module OPL4_KEY_RAM
+
+
+module OPL4_CH_RAM
+#(
+	parameter aw = 5, dw = 8
+)
 (
-	input         CLK,
+	input            CLK,
 	
-	input  [ 4: 0] WRADDR,
-	input  [ 2: 0] DATA,
-	input          WREN,
-	input  [ 4: 0] RDADDR,
-	output [ 2: 0] Q
+	input  [aw-1: 0] WRADDR,
+	input  [dw-1: 0] DATA,
+	input            WREN,
+	input  [aw-1: 0] RDADDR,
+	output [dw-1: 0] Q
 );
 
-	wire [2:0] sub_wire0;
+`ifdef SIM
 	
-	altdpram	altdpram_component (
-				.data (DATA),
-				.inclock (CLK),
-				.rdaddress (RDADDR),
-				.wraddress (WRADDR),
-				.wren (WREN),
-				.byteena (1'b1),
-				.q (sub_wire0),
-				.aclr (1'b0),
-				.inclocken (1'b1),
-				.rdaddressstall (1'b0),
-				.rden (1'b1),
-//				.sclr (1'b0),
-				.wraddressstall (1'b0));
-	defparam
-		altdpram_component.byte_size = 8,
-		altdpram_component.indata_aclr = "OFF",
-		altdpram_component.indata_reg = "INCLOCK",
-		altdpram_component.intended_device_family = "Cyclone V",
-		altdpram_component.lpm_type = "altdpram",
-		altdpram_component.outdata_aclr = "OFF",
-		altdpram_component.outdata_reg = "UNREGISTERED",
-		altdpram_component.ram_block_type = "MLAB",
-		altdpram_component.rdaddress_aclr = "OFF",
-		altdpram_component.rdaddress_reg = "UNREGISTERED",
-		altdpram_component.rdcontrol_aclr = "OFF",
-		altdpram_component.rdcontrol_reg = "UNREGISTERED",
-		altdpram_component.read_during_write_mode_mixed_ports = "CONSTRAINED_DONT_CARE",
-		altdpram_component.width = 3,
-		altdpram_component.widthad = 5,
-		altdpram_component.width_byteena = 1,
-		altdpram_component.wraddress_aclr = "OFF",
-		altdpram_component.wraddress_reg = "INCLOCK",
-		altdpram_component.wrcontrol_aclr = "OFF",
-		altdpram_component.wrcontrol_reg = "INCLOCK";
-		
-	assign Q = sub_wire0;
+	reg [dw-1:0] MEM [2**aw];
 	
-endmodule
+	always @(posedge CLK) begin
+		if (WREN) begin
+			MEM[WRADDR] <= DATA;
+		end
+		Q <= MEM[RDADDR];
+	end
+	
+`else
 
-module OPL4_PHASE_RAM (
-	input	         CLK,
-	input	 [ 4: 0] WRADDR,
-	input	 [13: 0] DATA,
-	input	         WREN,
-	input	 [ 4: 0] RDADDR,
-	output [13: 0] Q);
-
-	wire [13:0] sub_wire0;
+	wire [dw-1:0] sub_wire0;
 	
 	altsyncram	altsyncram_component (
 				.address_a (WRADDR),
@@ -1053,7 +1026,7 @@ module OPL4_PHASE_RAM (
 				.clocken1 (1'b1),
 				.clocken2 (1'b1),
 				.clocken3 (1'b1),
-				.data_b ({14{1'b1}}),
+				.data_b ({dw{1'b1}}),
 				.eccstatus (),
 				.q_a (),
 				.rden_a (1'b1),
@@ -1062,267 +1035,30 @@ module OPL4_PHASE_RAM (
 	defparam
 		altsyncram_component.address_aclr_b = "NONE",
 		altsyncram_component.address_reg_b = "CLOCK0",
+//		altsyncram_component.byte_size = 8,
 		altsyncram_component.clock_enable_input_a = "BYPASS",
 		altsyncram_component.clock_enable_input_b = "BYPASS",
 		altsyncram_component.clock_enable_output_b = "BYPASS",
 		altsyncram_component.intended_device_family = "Cyclone V",
 		altsyncram_component.lpm_type = "altsyncram",
-		altsyncram_component.numwords_a = 32,
-		altsyncram_component.numwords_b = 32,
+		altsyncram_component.numwords_a = 2**aw,
+		altsyncram_component.numwords_b = 2**aw,
 		altsyncram_component.operation_mode = "DUAL_PORT",
 		altsyncram_component.outdata_aclr_b = "NONE",
 		altsyncram_component.outdata_reg_b = "UNREGISTERED",
 		altsyncram_component.power_up_uninitialized = "FALSE",
 		altsyncram_component.ram_block_type = "M10K",
 		altsyncram_component.read_during_write_mode_mixed_ports = "DONT_CARE",
-		altsyncram_component.widthad_a = 5,
-		altsyncram_component.widthad_b = 5,
-		altsyncram_component.width_a = 14,
-		altsyncram_component.width_b = 14,
-		altsyncram_component.width_byteena_a = 1;
-	
-	assign Q = sub_wire0;
-
-endmodule
-
-module OPL4_LFO_RAM (
-	input	         CLK,
-	input	 [ 4: 0] WRADDR,
-	input	 [21: 0] DATA,
-	input	         WREN,
-	input	 [ 4: 0] RDADDR,
-	output [21: 0] Q);
-
-	wire [21:0] sub_wire0;
-	
-	altsyncram	altsyncram_component (
-				.address_a (WRADDR),
-				.byteena_a (1'b1),
-				.clock0 (CLK),
-				.data_a (DATA),
-				.wren_a (WREN),
-				.address_b (RDADDR),
-				.q_b (sub_wire0),
-				.aclr0 (1'b0),
-				.aclr1 (1'b0),
-				.addressstall_a (1'b0),
-				.addressstall_b (1'b0),
-				.byteena_b (1'b1),
-				.clock1 (1'b1),
-				.clocken0 (1'b1),
-				.clocken1 (1'b1),
-				.clocken2 (1'b1),
-				.clocken3 (1'b1),
-				.data_b ({22{1'b1}}),
-				.eccstatus (),
-				.q_a (),
-				.rden_a (1'b1),
-				.rden_b (1'b1),
-				.wren_b (1'b0));
-	defparam
-		altsyncram_component.address_aclr_b = "NONE",
-		altsyncram_component.address_reg_b = "CLOCK0",
-		altsyncram_component.clock_enable_input_a = "BYPASS",
-		altsyncram_component.clock_enable_input_b = "BYPASS",
-		altsyncram_component.clock_enable_output_b = "BYPASS",
-		altsyncram_component.intended_device_family = "Cyclone V",
-		altsyncram_component.lpm_type = "altsyncram",
-		altsyncram_component.numwords_a = 32,
-		altsyncram_component.numwords_b = 32,
-		altsyncram_component.operation_mode = "DUAL_PORT",
-		altsyncram_component.outdata_aclr_b = "NONE",
-		altsyncram_component.outdata_reg_b = "UNREGISTERED",
-		altsyncram_component.power_up_uninitialized = "FALSE",
-		altsyncram_component.ram_block_type = "M10K",
-		altsyncram_component.read_during_write_mode_mixed_ports = "DONT_CARE",
-		altsyncram_component.widthad_a = 5,
-		altsyncram_component.widthad_b = 5,
-		altsyncram_component.width_a = 22,
-		altsyncram_component.width_b = 22,
-		altsyncram_component.width_byteena_a = 1;
-	
-	assign Q = sub_wire0;
-
-endmodule
-
-module OPL4_SO_RAM (
-	input	         CLK,
-	input	 [ 4: 0] WRADDR,
-	input	 [15: 0] DATA,
-	input	         WREN,
-	input	 [ 4: 0] RDADDR,
-	output [15: 0] Q);
-
-	wire [15:0] sub_wire0;
-	
-	altsyncram	altsyncram_component (
-				.address_a (WRADDR),
-				.byteena_a (1'b1),
-				.clock0 (CLK),
-				.data_a (DATA),
-				.wren_a (WREN),
-				.address_b (RDADDR),
-				.q_b (sub_wire0),
-				.aclr0 (1'b0),
-				.aclr1 (1'b0),
-				.addressstall_a (1'b0),
-				.addressstall_b (1'b0),
-				.byteena_b (1'b1),
-				.clock1 (1'b1),
-				.clocken0 (1'b1),
-				.clocken1 (1'b1),
-				.clocken2 (1'b1),
-				.clocken3 (1'b1),
-				.data_b ({16{1'b1}}),
-				.eccstatus (),
-				.q_a (),
-				.rden_a (1'b1),
-				.rden_b (1'b1),
-				.wren_b (1'b0));
-	defparam
-		altsyncram_component.address_aclr_b = "NONE",
-		altsyncram_component.address_reg_b = "CLOCK0",
-		altsyncram_component.clock_enable_input_a = "BYPASS",
-		altsyncram_component.clock_enable_input_b = "BYPASS",
-		altsyncram_component.clock_enable_output_b = "BYPASS",
-		altsyncram_component.intended_device_family = "Cyclone V",
-		altsyncram_component.lpm_type = "altsyncram",
-		altsyncram_component.numwords_a = 32,
-		altsyncram_component.numwords_b = 32,
-		altsyncram_component.operation_mode = "DUAL_PORT",
-		altsyncram_component.outdata_aclr_b = "NONE",
-		altsyncram_component.outdata_reg_b = "UNREGISTERED",
-		altsyncram_component.power_up_uninitialized = "FALSE",
-		altsyncram_component.ram_block_type = "M10K",
-		altsyncram_component.read_during_write_mode_mixed_ports = "DONT_CARE",
-		altsyncram_component.widthad_a = 5,
-		altsyncram_component.widthad_b = 5,
-		altsyncram_component.width_a = 16,
-		altsyncram_component.width_b = 16,
+		altsyncram_component.widthad_a = aw,
+		altsyncram_component.widthad_b = aw,
+		altsyncram_component.width_a = dw,
+		altsyncram_component.width_b = dw,
 		altsyncram_component.width_byteena_a = 1;
 	
 	assign Q = sub_wire0;
 	
-endmodule
-
-module OPL4_EVOL_RAM (
-	input	         CLK,
-	input	 [ 4: 0] WRADDR,
-	input	 [11: 0] DATA,
-	input	         WREN,
-	input	 [ 4: 0] RDADDR,
-	output [11: 0] Q);
-
-	wire [11:0] sub_wire0;
+`endif
 	
-	altsyncram	altsyncram_component (
-				.address_a (WRADDR),
-				.byteena_a (1'b1),
-				.clock0 (CLK),
-				.data_a (DATA),
-				.wren_a (WREN),
-				.address_b (RDADDR),
-				.q_b (sub_wire0),
-				.aclr0 (1'b0),
-				.aclr1 (1'b0),
-				.addressstall_a (1'b0),
-				.addressstall_b (1'b0),
-				.byteena_b (1'b1),
-				.clock1 (1'b1),
-				.clocken0 (1'b1),
-				.clocken1 (1'b1),
-				.clocken2 (1'b1),
-				.clocken3 (1'b1),
-				.data_b ({12{1'b1}}),
-				.eccstatus (),
-				.q_a (),
-				.rden_a (1'b1),
-				.rden_b (1'b1),
-				.wren_b (1'b0));
-	defparam
-		altsyncram_component.address_aclr_b = "NONE",
-		altsyncram_component.address_reg_b = "CLOCK0",
-		altsyncram_component.clock_enable_input_a = "BYPASS",
-		altsyncram_component.clock_enable_input_b = "BYPASS",
-		altsyncram_component.clock_enable_output_b = "BYPASS",
-		altsyncram_component.intended_device_family = "Cyclone V",
-		altsyncram_component.lpm_type = "altsyncram",
-		altsyncram_component.numwords_a = 32,
-		altsyncram_component.numwords_b = 32,
-		altsyncram_component.operation_mode = "DUAL_PORT",
-		altsyncram_component.outdata_aclr_b = "NONE",
-		altsyncram_component.outdata_reg_b = "UNREGISTERED",
-		altsyncram_component.power_up_uninitialized = "FALSE",
-		altsyncram_component.ram_block_type = "M10K",
-		altsyncram_component.read_during_write_mode_mixed_ports = "DONT_CARE",
-		altsyncram_component.widthad_a = 5,
-		altsyncram_component.widthad_b = 5,
-		altsyncram_component.width_a = 12,
-		altsyncram_component.width_b = 12,
-		altsyncram_component.width_byteena_a = 1;
-	
-	assign Q = sub_wire0;
-
-endmodule
-
-module OPL4_TL_RAM (
-	input	         CLK,
-	input	 [ 4: 0] WRADDR,
-	input	 [16: 0] DATA,
-	input	         WREN,
-	input	 [ 4: 0] RDADDR,
-	output [16: 0] Q);
-
-	wire [16:0] sub_wire0;
-	
-	altsyncram	altsyncram_component (
-				.address_a (WRADDR),
-				.byteena_a (1'b1),
-				.clock0 (CLK),
-				.data_a (DATA),
-				.wren_a (WREN),
-				.address_b (RDADDR),
-				.q_b (sub_wire0),
-				.aclr0 (1'b0),
-				.aclr1 (1'b0),
-				.addressstall_a (1'b0),
-				.addressstall_b (1'b0),
-				.byteena_b (1'b1),
-				.clock1 (1'b1),
-				.clocken0 (1'b1),
-				.clocken1 (1'b1),
-				.clocken2 (1'b1),
-				.clocken3 (1'b1),
-				.data_b ({17{1'b1}}),
-				.eccstatus (),
-				.q_a (),
-				.rden_a (1'b1),
-				.rden_b (1'b1),
-				.wren_b (1'b0));
-	defparam
-		altsyncram_component.address_aclr_b = "NONE",
-		altsyncram_component.address_reg_b = "CLOCK0",
-		altsyncram_component.clock_enable_input_a = "BYPASS",
-		altsyncram_component.clock_enable_input_b = "BYPASS",
-		altsyncram_component.clock_enable_output_b = "BYPASS",
-		altsyncram_component.intended_device_family = "Cyclone V",
-		altsyncram_component.lpm_type = "altsyncram",
-		altsyncram_component.numwords_a = 32,
-		altsyncram_component.numwords_b = 32,
-		altsyncram_component.operation_mode = "DUAL_PORT",
-		altsyncram_component.outdata_aclr_b = "NONE",
-		altsyncram_component.outdata_reg_b = "UNREGISTERED",
-		altsyncram_component.power_up_uninitialized = "FALSE",
-		altsyncram_component.ram_block_type = "M10K",
-		altsyncram_component.read_during_write_mode_mixed_ports = "DONT_CARE",
-		altsyncram_component.widthad_a = 5,
-		altsyncram_component.widthad_b = 5,
-		altsyncram_component.width_a = 17,
-		altsyncram_component.width_b = 17,
-		altsyncram_component.width_byteena_a = 1;
-	
-	assign Q = sub_wire0;
-
 endmodule
 
 module OPL4_REG_RAM

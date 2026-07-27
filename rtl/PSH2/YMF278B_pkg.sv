@@ -31,10 +31,11 @@ package YMF278B_PKG;
 		bit         LOAD;
 		bit [ 3: 0] LOAD_POS;
 		bit         ALLOW;
+		bit         PHASE_OVF;
 		bit [13: 0] PHASE_FRAC;//Phase fractional
 		bit [15: 0] SO;	//Sample offset
 	} OP3_t;
-	parameter OP3_t OP3_RESET = '{5'h00,1'b0,1'b0,1'b0,1'b0,4'h0,1'b0,14'h0000,16'h0000};
+	parameter OP3_t OP3_RESET = '{5'h00,1'b0,1'b0,1'b0,1'b0,4'h0,1'b0,1'b0,14'h0000,16'h0000};
 	
 	typedef struct packed
 	{
@@ -42,8 +43,11 @@ package YMF278B_PKG;
 		bit         RST;	//
 		bit         KON;	//
 		bit         KOFF;	//
+		bit [ 5: 0] MODF;	//Modulation fractional
+		bit         PHASE_OVF;
+		bit [15: 0] WD;	//Wave form data
 	} OP4_t;
-	parameter OP4_t OP4_RESET = '{5'h00,1'b0,1'b0,1'b0};
+	parameter OP4_t OP4_RESET = '{5'h00,1'b0,1'b0,1'b0,6'h00,1'b0,16'h0000};
 	
 	typedef struct packed
 	{
@@ -247,6 +251,19 @@ package YMF278B_PKG;
 		endcase
 			
 		return EncIncTbl[{ERATE,IDX}];
+	endfunction
+	
+	function bit [15:0] Interpolate(input bit [15:0] WAVE0, input bit [15:0] WAVE1, bit [5:0] PHASE);
+		bit [ 6:0] PHASE_NEG;
+		bit [21:0] TEMP0,TEMP1;
+		bit [21:0] SUM;
+		
+		PHASE_NEG = 7'h40 - PHASE;
+		TEMP0 = $signed(WAVE0) * PHASE_NEG;
+		TEMP1 = $signed(WAVE1) * PHASE;
+		SUM = $signed(TEMP0) + $signed(TEMP1);
+	
+		return SUM[21:6];
 	endfunction
 	
 	function bit [9:0] LevelAddTLALFO(bit [9:0] LEVEL, bit [8:0] TL, bit [7:0] ALFO);
