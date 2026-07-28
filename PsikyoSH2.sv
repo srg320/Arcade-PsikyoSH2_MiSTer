@@ -340,8 +340,10 @@ module emu
 	
 	assign menumask = {~ps4_board, ~(ps3_board|ps5_board), 1'b0};
 	
+`ifdef DEBUG
 	wire cart_download = ioctl_download & (ioctl_index[5:0] == 6'h0);
 	wire bios_download = ioctl_download & (ioctl_index[5:0] == 6'h1);
+`endif
 	wire conf_download = ioctl_download & (ioctl_index[5:0] == 6'h2);
 	wire hsconf_download = ioctl_download & (ioctl_index[5:0] == 6'h3);
 	wire nvram_download = ioctl_download & (ioctl_index[5:0] == 6'h4);
@@ -362,21 +364,14 @@ module emu
 	
 	wire reset = RESET | status[0] | buttons[1];
 	
-	reg rst_ram = 0, loader_rst = 0;
-	reg download;
-	always @(posedge clk_sys) begin
-		reg [7:0] delay_cnt;
-		
+	reg loader_rst = 0;
+	reg download = 0;
+`ifdef DEBUG
+	always @(posedge clk_sys) begin		
 		download <= bios_download || cart_download;
-		if (delay_cnt) delay_cnt <= delay_cnt - 8'd1;
-		else rst_ram <= 0;
-		
-		if ((!bios_download && !cart_download && download) || reset) begin
-			rst_ram <= 1;
-			delay_cnt <= '1;
-		end
 	end
-	wire rst_sys = reset | download | rst_ram | loader_rst;
+`endif
+	wire rst_sys = reset | download | loader_rst;
 	
 	//[1:0] - ver: 0-PS3,1-PS5,2-PS4
 	//[5:4] - input mode: 1,2,3,4 buttons
@@ -784,7 +779,7 @@ module emu
 	(
 		.*,
 		.clk(clk_ram),
-		.rst(reset || rst_ram),
+		.rst(reset),
 		
 		//CPU bus (DRAM)
 		.dram_addr(DRAM_A[19:2]),
@@ -807,9 +802,15 @@ module emu
 		.drom_busy(drom_busy),
 	
 		//PROG/DATA ROM load
+`ifdef DEBUG
 		.bios_addr(ioctl_addr[20:1]),
 		.bios_din ({ioctl_data[7:0],ioctl_data[7:0]}),
 		.bios_wr  ({2{bios_download & ioctl_wr}}),
+`else
+		.bios_addr('0),
+		.bios_din ('0),
+		.bios_wr  ('0),
+`endif
 		.bios_busy(bios_busy),
 	
 		//GFX/Sound ROM,EEPROM loader
@@ -859,12 +860,14 @@ module emu
 	reg  [ 1: 0] HS_MATCH[2];
 	reg  [ 0: 0] HS_NUM;
 	always @(posedge clk_sys) begin
-		reg hsconf_download_old,nvram_download_old,nvram_upload_old,hs_start_cond_old;
+		reg hsconf_download_old,nvram_download_old,nvram_upload_old,reset_old,hs_start_cond_old;
 		reg [3:0] hs_state = 0;
+		reg [0:0] HS_NUM;
 		reg [7:0] DRAM_DO_BYTES[4];
 		
 		nvram_download_old <= nvram_download;
 		nvram_upload_old <= nvram_upload;
+		reset_old <= reset;
 		
 		//ram transfer
 		hs_start_cond_old <= hs_start_cond;
@@ -952,7 +955,7 @@ module emu
 		if (hs_start_cond && !hs_start_cond_old) begin
 			hs_state <= 4'd1;
 		end
-		if (nvram_upload && !nvram_upload_old) begin
+		if ((nvram_upload && !nvram_upload_old) || (reset && !reset_old)) begin
 			if (HS_ENABLE && &HS_MATCH[0] && &HS_MATCH[HS_LAST_NUM]) begin
 				hs_state <= 4'd5;
 				ioctl_wait <= 1;
@@ -1033,6 +1036,9 @@ module emu
 				if (DRAM_A == HS_START_ADDR[i][19:2] && DRAM_WE_N[~HS_START_ADDR[i][1:0]] == 1'b0 && DRAM_DO_BYTES[HS_START_ADDR[i][1:0]] == HS_START_DATA[i]) HS_MATCH[i][0] <= 1;
 				if (DRAM_A == HS_END_ADDR[i][19:2]   && DRAM_WE_N[~HS_END_ADDR[i][1:0]]   == 1'b0 && DRAM_DO_BYTES[HS_END_ADDR[i][1:0]]   == HS_END_DATA[i]  ) HS_MATCH[i][1] <= 1;
 			end
+		end
+		if (reset && !reset_old) begin
+			HS_MATCH <= '{2{2'b00}};
 		end
 	end
 	wire hs_start_cond = HS_ENABLE && HS_LOADED[0] && &HS_MATCH[0] && HS_LOADED[HS_LAST_NUM] && &HS_MATCH[HS_LAST_NUM];
