@@ -177,6 +177,7 @@ module emu
 	assign USER_OUT = 'Z;
 
 	assign AUDIO_S = 1;
+	assign AUDIO_MIX = '0;
 	assign HDMI_FREEZE = 0;
 	assign VGA_DISABLE = 0;
 	
@@ -597,7 +598,8 @@ module emu
 		
 		.SCRN_EN(SCRN_EN),
 		.HS_OFFS({{4{status[37]}},status[37:33]}),
-		.SND_EN(SND_EN)
+		.SND_EN(SND_EN),
+		.SND_MONO(~status[9])
 		
 `ifdef DEBUG
 		,
@@ -1229,8 +1231,6 @@ module emu
 		.HBlank(~HBL_N),
 		.VBlank(~VBL_N) 
 	);
-
-	assign AUDIO_MIX = !status[9] ? 2'b11 : 2'b00;
 
 	//debug
 	reg  [ 5: 0] SCRN_EN = 6'b111111;
