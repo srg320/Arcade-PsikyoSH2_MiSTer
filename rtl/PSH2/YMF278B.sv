@@ -36,7 +36,8 @@ module YMF278B
 	output     [15: 0] OUT2_L,
 	output     [15: 0] OUT2_R,
 	
-	input      [ 2: 0] SND_EN
+	input      [ 2: 0] SND_EN,
+	input              MONO
 	
 `ifdef DEBUG
                       ,
@@ -44,9 +45,7 @@ module YMF278B
 	output             DECAY1_DBG,
 	output             DECAY2_DBG,
 	output             RELEASE_DBG,
-	output signed [15:0] LVL_DBG,
-	output signed [15:0] PAN_L_DBG,
-	output signed [15:0] PAN_R_DBG
+	output reg [15: 0] TEMP_L_DBG,TEMP_R_DBG
 `endif
 );
 
@@ -118,20 +117,18 @@ module YMF278B
 	wire SLOT0_CE = SLOT0_EN & CYCLE1_CE;
 	wire SLOT1_CE = SLOT1_EN & CYCLE1_CE;
 		
-	bit  [ 4: 0] EVOL_RA,AM_RA,SA_RA,FNUM_RA,LFO_RA;
+	bit  [ 4: 0] EVOL_RA,SA_RA,FNUM_RA,LFO_RA;
 	always_comb begin
 		casex (CYCLE_NUM[2:1])
 			2'b0x: begin
 				SA_RA = OP2.SLOT;//OP2
 				FNUM_RA = SLOT;//OP1
-				AM_RA = SLOT;//OP1
 				EVOL_RA = OP2.SLOT;//OP2
 				LFO_RA = SLOT;//OP1
 			end
 			2'b1x: begin
 				SA_RA = OP2.SLOT;//OP2
 				FNUM_RA = OP4.SLOT;//OP4
-				AM_RA = OP4.SLOT;//OP4
 				EVOL_RA = OP4.SLOT;//OP4
 				LFO_RA = OP4.SLOT;//OP4
 			end
@@ -549,7 +546,7 @@ module YMF278B
 							end else begin
 								NEW_EVOL = 10'h3FF;
 							end
-							if (OP4_EVOL[9:6] == OP4_DL) begin
+							if (OP4_EVOL[9:5] == {&OP4_DL,OP4_DL}) begin
 								NEW_EST = EST_DECAY2;
 `ifdef DEBUG
 								DECAY2_DBG <= 1;
@@ -638,67 +635,59 @@ module YMF278B
 	OPL4_CH_RAM #(5,17) TL_RAM(CLK, OP6.SLOT, TL_RAM_D, SLOT1_CE, OP5.SLOT, TL_RAM_Q);
 
 	//Operation 6: Level calculation
+	bit  [ 3: 0] OP6_PAN;
+	bit          OP6_CH;
 	always @(posedge CLK or negedge RST_N) begin		
 		if (!RST_N) begin
 			OP7 <= OP7_RESET;
 		end else if (!RES_N) begin
 			OP7 <= OP7_RESET;
 		end else begin
+			if (CYCLE0_CE) begin
+				{OP6_CH,OP6_PAN} <= REG_PAN_Q[4:0];
+			end
 			
 			if (SLOT1_CE) begin
 				OP7.SLOT <= OP6.SLOT;
 				OP7.RST <= OP6.RST;
 				OP7.KON <= OP6.KON;
 				OP7.KOFF <= OP6.KOFF;
-				OP7.SD <= VolCalc(OP6.WD, OP6.LEVEL);
+				OP7.WD <= OP6.WD;
+				OP7.LVLL <= !OP6_CH ? LevelAddPanL(OP6.LEVEL, MONO ? 4'h0 : OP6_PAN) : 10'h3FF;
+				OP7.LVLR <= !OP6_CH ? LevelAddPanR(OP6.LEVEL, MONO ? 4'h0 : OP6_PAN) : 10'h3FF;
 			end
 		end
 	end
 	
 	//Operation 7: 
-	bit  [ 3: 0] OP7_PAN;
-	bit          OP7_CH;
 	bit  [17: 0] ACC_L,ACC_R;
 	always @(posedge CLK or negedge RST_N) begin
 		bit [ 4:0] S;
-		bit signed [15:0] TEMP;
-		bit signed [15:0] PAN_L,PAN_R;
+		bit signed [15:0] TEMP_L,TEMP_R;
 		
 		if (!RST_N) begin
-			OP7_PAN <= '0;
 			ACC_L <= 0;
 			ACC_R <= 0;
 		end else if (!RES_N) begin
-			OP7_PAN <= '0;
 			ACC_L <= 0;
 			ACC_R <= 0;
 		end else begin
-			if (CYCLE0_CE) begin
-				{OP7_CH,OP7_PAN} <= REG_PAN_Q[4:0];
-			end
 			
 			S = OP7.SLOT;
-			if ((SND_EN[0] && S[4:3] == 2'b00) || (SND_EN[1] && S[4:3] == 2'b01) || (SND_EN[2] && S[4:3] == 2'b10))
-				TEMP = !OP7_CH ? OP7.SD : '0;
-			else
-				TEMP = '0;
-			PAN_L = PanLCalc(TEMP,OP7_PAN);
-			PAN_R = PanRCalc(TEMP,OP7_PAN);
-			
+			TEMP_L = VolCalc(OP7.WD, OP7.LVLL);
+			TEMP_R = VolCalc(OP7.WD, OP7.LVLR);
 			if (SLOT1_CE) begin
 				if (S == 5'd0) begin
-					ACC_L <= {{2{PAN_L[15]}},PAN_L[15:0]};
-					ACC_R <= {{2{PAN_R[15]}},PAN_R[15:0]};
+					ACC_L <= {{2{TEMP_L[15]}},TEMP_L[15:0]};
+					ACC_R <= {{2{TEMP_R[15]}},TEMP_R[15:0]};
 				end else begin
-					ACC_L <= ACC_L + {{2{PAN_L[15]}},PAN_L[15:0]};
-					ACC_R <= ACC_R + {{2{PAN_R[15]}},PAN_R[15:0]};
+					ACC_L <= ACC_L + {{2{TEMP_L[15]}},TEMP_L[15:0]};
+					ACC_R <= ACC_R + {{2{TEMP_R[15]}},TEMP_R[15:0]};
 				end
 			end
-			
 `ifdef DEBUG
-			LVL_DBG <= TEMP;
-			PAN_L_DBG <= PAN_L;
-			PAN_R_DBG <= PAN_R;
+			TEMP_L_DBG <= TEMP_L;
+			TEMP_R_DBG <= TEMP_R;
 `endif
 		end
 	end
@@ -713,8 +702,8 @@ module YMF278B
 			
 		end else begin
 			if (OP7.SLOT == 5'd0 && CYCLE_NUM[2:1] == 2'b00 && CYCLE1_CE) begin
-				PCM_L <= (/*!SND_EN[2] ? 16'h0000 :*/ TrimWave(ACC_L));
-				PCM_R <= (/*!SND_EN[2] ? 16'h0000 :*/ TrimWave(ACC_R));
+				PCM_L <= (!SND_EN[0] ? 16'h0000 : TrimWave(ACC_L));
+				PCM_R <= (!SND_EN[1] ? 16'h0000 : TrimWave(ACC_R));
 			end
 		end
 	end
@@ -925,7 +914,7 @@ module YMF278B
 	
 	wire       REG_PAN_SEL = (REG_A >= 8'h68 && REG_A <= 8'h7F);
 	bit [ 7:0] REG_PAN_Q;
-	OPL4_REG_RAM #(5,8) REG_PAN  (CLK,     RST ?     SLOT :                       REG_A[4:0]-5'h08,     RST ? '0 :                    REG_D,     RST ? 1'b1 : (REG_WR & REG_PAN_SEL & CYCLE1_CE), (REG_RD ? REG_A[4:0]-5'h08 : OP7.SLOT ), REG_PAN_Q);
+	OPL4_REG_RAM #(5,8) REG_PAN  (CLK,     RST ?     SLOT :                       REG_A[4:0]-5'h08,     RST ? '0 :                    REG_D,     RST ? 1'b1 : (REG_WR & REG_PAN_SEL & CYCLE1_CE), (REG_RD ? REG_A[4:0]-5'h08 : OP6.SLOT ), REG_PAN_Q);
 	
 	wire       REG_LFO_SEL = (REG_A >= 8'h80 && REG_A <= 8'h97);
 	wire       REG_LFO_LOAD  = (OP3.LOAD_POS == 4'h7);

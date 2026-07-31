@@ -78,9 +78,11 @@ package YMF278B_PKG;
 		bit         RST;	//
 		bit         KON;	//
 		bit         KOFF;	//
-		bit [15: 0] SD;	//Slot out data
+		bit [15: 0] WD;	//Wave form data
+		bit [ 9: 0] LVLL;	//Left level
+		bit [ 9: 0] LVLR;	//Right level
 	} OP7_t;
-	parameter OP7_t OP7_RESET = '{5'h00,1'b0,1'b0,1'b0,16'h0000};
+	parameter OP7_t OP7_RESET = '{5'h00,1'b0,1'b0,1'b0,16'h0000,10'h000,10'h000};
 
 	function bit [22:0] PhaseCalc(bit [9:0] FNUM, bit [3:0] OCT, bit signed [7:0] PLFO_WAVE);
 		bit [26:0] P;
@@ -274,6 +276,26 @@ package YMF278B_PKG;
 		return !SUM[10] ? SUM[9:0] : 10'h3FF;
 	endfunction
 
+	function bit [9:0] LevelAddPanL(bit [9:0] LEVEL, bit [3:0] PAN);
+		bit [9:0] PAN_LEVEL;
+		bit [10:0] SUM;
+		
+		PAN_LEVEL = PAN == 4'h7 || PAN == 4'h8 ? 10'h3FF : PAN > 4'h8 || PAN == 4'h0 ? 10'h000 : (10'h020 * PAN[2:0]);
+		SUM = {1'b0,LEVEL} + {1'b0,PAN_LEVEL};
+		
+		return !SUM[10] ? SUM[9:0] : 10'h3FF;
+	endfunction
+
+	function bit [9:0] LevelAddPanR(bit [9:0] LEVEL, bit [3:0] PAN);
+		bit [9:0] PAN_LEVEL;
+		bit [10:0] SUM;
+		
+		PAN_LEVEL = PAN == 4'h9 || PAN == 4'h8 ? 10'h3FF : PAN < 4'h8 || PAN == 4'h0 ? 10'h000 : (10'h020 * ~PAN[2:0]);
+		SUM = {1'b0,LEVEL} + {1'b0,PAN_LEVEL};
+		
+		return !SUM[10] ? SUM[9:0] : 10'h3FF;
+	endfunction
+
 	function bit signed [15:0] VolCalc(bit signed [15:0] WAVE, bit [9:0] LEVEL);
 		bit [22:0] MULT;
 		bit [15:0] RES;
@@ -282,24 +304,6 @@ package YMF278B_PKG;
 		RES = $signed($signed(MULT[22:7])>>>LEVEL[9:6]);
 		
 		return RES;
-	endfunction
-	
-	function bit signed [15:0] PanLCalc(bit signed [15:0] WAVE, bit [3:0] PAN);
-		bit [3:0] S;
-		bit [15:0] TEMP;
-		
-		S = 4'd0 + PAN;
-		TEMP = $signed($signed(WAVE)>>>{S[2:0],1'b0});
-		return PAN == 4'h0 ? WAVE : PAN == 4'h8 ? 16'h0000 : PAN[3] ? WAVE : $signed(TEMP);
-	endfunction
-	
-	function bit signed [15:0] PanRCalc(bit signed [15:0] WAVE, bit [3:0] PAN);
-		bit [3:0] S;
-		bit [15:0] TEMP;
-		
-		S = 4'd0 - PAN;
-		TEMP = $signed($signed(WAVE)>>>{S[2:0],1'b0});
-		return PAN == 4'h0 ? WAVE : PAN == 4'h8 ? 16'h0000 : !PAN[3] ? WAVE : $signed(TEMP);
 	endfunction
 	
 	function bit signed [15:0] MixCalc(bit signed [15:0] WAVE, bit [2:0] MIX);
